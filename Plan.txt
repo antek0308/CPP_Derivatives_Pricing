@@ -1,0 +1,24 @@
+
+I decided to build my repo form the start with princpiles learned in the classes.
+I know that it would have taken more times, but I actually wanted to learn to extrapolate the ideas
+and uild custom solution on my own. As I had a little bit more time, I decided to go
+this path.
+
+I wanted to build this project QuantLib style as I think that this i gold standard in terms
+of instrument pricing in banks and everywehre else.
+
+What this entailed is that the some of classes were retired, some of them resusd, but in genral
+low level code was kept.
+
+
+Payoff            (abstract)  evaluate() + strike()/type()      ← rich enough for ALL engines
+   └─ PlainVanillaPayoff
+Instrument        (abstract)  holds a Payoff; setPricingEngine(); NPV()
+   ├─ EuropeanOption
+   └─ BarrierOption           adds barrier level + up/down + in/out
+StochasticProcess (abstract)  the dynamics + market
+   └─ BlackScholesProcess     spot, r, d, vol     [HestonProcess later]
+PricingEngine     (abstract)  calculate() → a price             ← the "strategy"
+   ├─ AnalyticEuropeanEngine  reuses your bs_price
+   ├─ MonteCarloEngine        simulates the process
+   └─ FiniteDifferenceEngine  (future, PDE)
