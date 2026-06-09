@@ -9,6 +9,7 @@
 #include "AnalyticEuropeanEngine.h"
 #include "Mt19937.h"
 #include "AntiThetic.h"
+#include "ParkMiller.h"
 
 int main()
 {
@@ -40,9 +41,18 @@ int main()
     const double out_price_anti = down_out.NPV();
     const double out_error_anti = anti_eng->errorEstimate();
 
+    // ParkMiller WITH antithetic (decorator wraps it)
+    auto anti_eng_PM = std::make_shared<MonteCarloBarrierEngine>(
+        process, num_steps, num_paths,
+        std::make_shared<AntiThetic>(std::make_shared<ParkMiller>(12345)));
+    down_out.setPricingEngine(anti_eng_PM);
+    const double out_price_anti_PM = down_out.NPV();
+    const double out_error_anti_PM = anti_eng_PM->errorEstimate();
+
     std::cout << std::fixed << std::setprecision(5);
-    std::cout << "Down-and-out WITHOUT antithetic = " << out_price << " (MC std err " << out_error << ")\n";
-    std::cout << "Down-and-out WITH antithetic = " << out_price_anti << " (MC std err " << out_error_anti << ")\n";
+    std::cout << "Down-and-out MT19937 WITHOUT antithetic = " << out_price << " (MC std err " << out_error << ")\n";
+    std::cout << "Down-and-out MT19937 WITH antithetic = " << out_price_anti << " (MC std err " << out_error_anti << ")\n";
+    std::cout << "Down-and-out ParkMiller WITH antithetic = " << out_price_anti_PM << " (MC std err " << out_error_anti_PM << ")\n";
 
     return 0;
     return 0;

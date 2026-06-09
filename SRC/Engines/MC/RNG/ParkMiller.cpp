@@ -1,4 +1,8 @@
+// I cliped the ParkMIller so it is adpatable to my interface with Mt19937
+// without the extesnive stuff peviously implemented.
+
 #include "ParkMiller.h"
+#include "normals.h"
 
 const long a = 16807;
 const long m = 2147483647;
@@ -10,6 +14,8 @@ ParkMiller::ParkMiller(long seed_) : seed(seed_)
     if (seed == 0)
         seed = 1;
 }
+
+ParkMillerRng::ParkMillerRng(long seed) : core_(seed) {}
 
 void ParkMiller::set_seed(long seed_)
 {
@@ -38,49 +44,13 @@ long ParkMiller::get_one_random_integer()
     return seed;
 }
 
-RandomParkMiller::RandomParkMiller(unsigned long dimensionality, unsigned long seed)
-    : RandomBase(dimensionality),
-      InnerGenerator(seed),
-      InitialSeed(seed)
-{
-    Reciprocal = 1 / (1.0 + InnerGenerator.max());
-}
 
-RandomBase *RandomParkMiller::clone() const
+void ParkMillerRng::get_gaussians(std::vector<double>& z)
 {
-    return new RandomParkMiller(*this);
-}
-
-void RandomParkMiller::get_uniforms(MJArray &variates)
-{
-    for (unsigned long j = 0; j < get_dimensionality(); j++)
+    for (double& zi : z)
     {
-        variates[j] = InnerGenerator.get_one_random_integer() * Reciprocal;
+        long n = core_.get_one_random_integer();      // int in [1, m-1]
+        double u = n / (1.0 + ParkMiller::max());      // uniform in (0,1)
+        zi = InverseCumulativeNormal(u);               // → N(0,1)
     }
 }
-
-void RandomParkMiller::skip(unsigned long number_of_paths)
-{
-    MJArray tmp(get_dimensionality());
-    for (unsigned long j = 0; j < number_of_paths; j++)
-        get_uniforms(tmp);
-}
-
-void RandomParkMiller::set_seed(unsigned long seed)
-{
-    InitialSeed = seed;
-    InnerGenerator.set_seed(seed);
-}
-
-void RandomParkMiller::reset()
-{
-    InnerGenerator.set_seed(InitialSeed);
-}
-
-void RandomParkMiller::reset_dimensionality(unsigned long new_dimensionality)
-{
-    RandomBase::reset_dimensionality(new_dimensionality);
-    InnerGenerator.set_seed(InitialSeed);
-}
-
-RandomParkMiller::~RandomParkMiller() {};
