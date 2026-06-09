@@ -2,14 +2,16 @@
 #include "BarrierOption.h"
 #include "payoff.h"
 #include <cmath>
-#include <random>
+#include <vector>
 
 // Extending the code with gatherer for MC
 #include "conf_limits.h"
 
 MonteCarloBarrierEngine::MonteCarloBarrierEngine(BlackScholesProcess process, unsigned long number_of_steps,
-                                                 unsigned long number_of_simulations)
-    : process_(process), number_of_steps_(number_of_steps), number_of_simulations_(number_of_simulations)
+                                                 unsigned long number_of_simulations,
+                                                 std::shared_ptr<RngBase> rng)
+    : process_(process), number_of_steps_(number_of_steps), number_of_simulations_(number_of_simulations),
+      rng_(rng)
 {
 }
 
@@ -18,9 +20,6 @@ double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
     const BarrierOption& option = dynamic_cast<const BarrierOption&>(instrument);
 
     const Payoff& payoff = option.payoff();
-
-    std::mt19937_64 rng(12345);
-    std::normal_distribution<double> norm(0.0, 1.0);
 
     double vol = process_.vol();
     double S0 = process_.spot();
@@ -40,15 +39,19 @@ double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
     // Setting confidence limits to 95% (1.96 = normal quantile)
     ConfidenceLimits gatherer(1.96);
 
+    std::vector<double> variates(number_of_steps_); // one path's worth of N(0,1) draws
+
     for (unsigned long j = 0; j < number_of_simulations_; j++)
     {
         double S = S0;
         bool breached = false;
         double payoff_value = 0.0;
 
+        rng_->get_gaussians(variates); // fill this path's draws from the injected RNG
+
         for (unsigned long i = 0; i < number_of_steps_; i++)
         {
-            double Z = norm(rng);
+            double Z = variates[i];
             S *= std::exp(drift + diffusion * Z);
             if (S <= lower_b || S >= upper_b) {breached = true;};
         }

@@ -1,4 +1,4 @@
-#include "park_miller.h"
+#include "ParkMiller.h"
 
 const long a = 16807;
 const long m = 2147483647;

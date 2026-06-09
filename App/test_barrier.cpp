@@ -7,6 +7,8 @@
 #include "black_scholes_process.h"
 #include "MonteCarloBarrierEngine.h"
 #include "AnalyticEuropeanEngine.h"
+#include "Mt19937.h"
+#include "AntiThetic.h"
 
 int main()
 {
@@ -27,17 +29,25 @@ int main()
     const double vanilla_price = vanilla.NPV();
 
     // ---- the two barrier halves ---
-    // Same engine instance => same fixed seed => SAME paths for both, so the
-    // parity holds path-by-path and the gap is pure Monte Carlo noise.
-    auto engine = std::make_shared<MonteCarloBarrierEngine>(process, num_steps, num_paths);
+    // Each leg gets its OWN engine with a fresh RNG seeded the same (12345), so
+    // both see identical paths => the parity holds path-by-path and the gap is
+    // pure Monte Carlo noise.
+    auto out_engine = std::make_shared<MonteCarloBarrierEngine>
+    (
+        process, num_steps, num_paths, std::make_shared<Mt19937Rng>(12345)
+    );
 
     BarrierOption down_out = BarrierOption::downOut(payoff, expiry, barrier);
-    down_out.setPricingEngine(engine);
+    down_out.setPricingEngine(out_engine);
     const double out_price = down_out.NPV();
-    const double out_error = engine->errorEstimate();
+    const double out_error = out_engine->errorEstimate();
 
+    auto in_engine = std::make_shared<MonteCarloBarrierEngine>
+    (
+        process, num_steps, num_paths, std::make_shared<Mt19937Rng>(12345)
+    );
     BarrierOption down_in = BarrierOption::downIn(payoff, expiry, barrier);
-    down_in.setPricingEngine(engine);
+    down_in.setPricingEngine(in_engine);
     const double in_price = down_in.NPV();
 
     // ---- in/out parity:  downOut + downIn  ==  vanilla ----

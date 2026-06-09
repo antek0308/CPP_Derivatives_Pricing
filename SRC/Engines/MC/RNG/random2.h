@@ -1,6 +1,4 @@
-#ifndef RANDOM2_H
-#define RANDOM2_H
-
+#pragma once
 #include "arrays.h"
 
 class RandomBase
@@ -28,5 +26,3 @@ unsigned long RandomBase::get_dimensionality() const
 {
     return dimensionality;
 }
-
-#endif

@@ -9,7 +9,7 @@ public:
 
     virtual StatisticsMC *clone() const;
     virtual void dump_one_result(double result);
-    virtual std::vector<MCResult> get_results_so_far() const;
+    virtual std::vector<MCResult> get_results_so_far() const;n 
     virtual void reset();
 
 private:

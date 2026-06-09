@@ -19,6 +19,7 @@ INCLUDES := -ISRC/Core \
             -ISRC/Engines \
             -ISRC/Engines/Analytic \
             -ISRC/Engines/MC \
+            -ISRC/Engines/MC/RNG \
             -ISRC/Statistics
 
 # library sources shared by both executables (no main())
@@ -31,6 +32,8 @@ COMMON_SRCS := SRC/Core/normals.cpp \
                SRC/Instruments/Options/BarrierOption.cpp \
                SRC/Engines/Analytic/BlackScholes.cpp \
                SRC/Engines/Analytic/AnalyticEuropeanEngine.cpp \
+               SRC/Engines/MC/RNG/Mt19937.cpp \
+               SRC/Engines/MC/RNG/AntiThetic.cpp \
                SRC/Statistics/conf_limits.cpp
 
 barrier.exe: App/test_barrier.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrierEngine.cpp
@@ -39,13 +42,19 @@ barrier.exe: App/test_barrier.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrie
 pricer.exe: App/test_engine.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloEngine.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
 
+anti.exe: App/test_anthitetic.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrierEngine.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+
 run: barrier.exe
 	./barrier.exe
 
 run-eu: pricer.exe
 	./pricer.exe
 
-clean:
-	rm -f barrier.exe pricer.exe
+run-anti: anti.exe
+	./anti.exe
 
-.PHONY: run run-eu clean
+clean:
+	rm -f barrier.exe pricer.exe anti.exe
+
+.PHONY: run run-eu run-anti clean
