@@ -44,7 +44,7 @@ int main()
     // ParkMiller WITH antithetic (decorator wraps it)
     auto anti_eng_PM = std::make_shared<MonteCarloBarrierEngine>(
         process, num_steps, num_paths,
-        std::make_shared<AntiThetic>(std::make_shared<ParkMiller>(12345)));
+        std::make_shared<AntiThetic>(std::make_shared<ParkMillerRng>(12345)));
     down_out.setPricingEngine(anti_eng_PM);
     const double out_price_anti_PM = down_out.NPV();
     const double out_error_anti_PM = anti_eng_PM->errorEstimate();

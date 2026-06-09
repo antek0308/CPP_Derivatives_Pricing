@@ -17,7 +17,9 @@ class Instrument
 {
     public:
         void setPricingEngine(std::shared_ptr<PricingEngine> engine);
-        double NPV() const;
+        virtual double NPV() const; // virtual so that when something holds this
+        // as a shared_ptr<Instrument> and calls NPV(), the Portfolio's summing 
+        // version runs — not the base engine version
         virtual ~Instrument() {}
 
     protected:

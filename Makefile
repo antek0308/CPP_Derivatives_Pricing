@@ -30,10 +30,12 @@ COMMON_SRCS := SRC/Core/normals.cpp \
                SRC/Instruments/Options/payoff.cpp \
                SRC/Instruments/Options/EuropeanOption.cpp \
                SRC/Instruments/Options/BarrierOption.cpp \
+               SRC/Instruments/Portfolio.cpp \
                SRC/Engines/Analytic/BlackScholes.cpp \
                SRC/Engines/Analytic/AnalyticEuropeanEngine.cpp \
                SRC/Engines/MC/RNG/Mt19937.cpp \
                SRC/Engines/MC/RNG/AntiThetic.cpp \
+               SRC/Engines/MC/RNG/ParkMiller.cpp \
                SRC/Statistics/conf_limits.cpp
 
 barrier.exe: App/test_barrier.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrierEngine.cpp
@@ -45,6 +47,9 @@ pricer.exe: App/test_engine.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloEngine.c
 anti.exe: App/test_anthitetic.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrierEngine.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
 
+butterfly.exe: App/test_butterfly.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrierEngine.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+
 run: barrier.exe
 	./barrier.exe
 
@@ -54,7 +59,10 @@ run-eu: pricer.exe
 run-anti: anti.exe
 	./anti.exe
 
-clean:
-	rm -f barrier.exe pricer.exe anti.exe
+run-fly: butterfly.exe
+	./butterfly.exe
 
-.PHONY: run run-eu run-anti clean
+clean:
+	rm -f barrier.exe pricer.exe anti.exe butterfly.exe
+
+.PHONY: run run-eu run-anti run-fly clean
