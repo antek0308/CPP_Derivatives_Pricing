@@ -11,14 +11,15 @@ void StatisticsMean::dump_one_result(double result)
     running_sum += result;
 }
 
-vector<vector<double>> StatisticsMean::get_results_so_far() const
+std::vector<MCResult> StatisticsMean::get_results_so_far() const
 {
-    vector<vector<double>> Results(1);
-
-    Results[0].resize(1);
-    Results[0][0] = running_sum / paths_done;
-
-    return Results;
+    MCResult r;
+    r.mean = running_sum / paths_done;
+    r.paths = paths_done;
+    r.stdError = 0;
+    r.ciLow = 0;
+    r.ciHigh = 0;
+    return {r};
 }
 
 StatisticsMC *StatisticsMean::clone() const

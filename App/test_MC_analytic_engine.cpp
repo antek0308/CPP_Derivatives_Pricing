@@ -4,7 +4,7 @@
 #include "EuropeanOption.h"
 #include "black_scholes_process.h"
 #include "AnalyticEuropeanEngine.h"
-#include "monte_carlo_engine.h"
+#include "MonteCarloEngine.h"
 
 int main()
 {
@@ -23,8 +23,12 @@ int main()
     std::cout << "Analytic call NPV = " << option.NPV() << "\n";   // expect 8.4819
 
     unsigned long num_paths = 1000000;
-    option.setPricingEngine(std::make_shared<MonteCarloEngine>(process, num_paths));
-    std::cout << "MC call NPV = " << option.NPV() << "\n";   // expect 8.4819
+    // Keep a typed handle: errorEstimate() lives on MonteCarloEngine, NOT on the
+    // generic PricingEngine base, so a base pointer couldn't reach it.
+    auto mc = std::make_shared<MonteCarloEngine>(process, num_paths);
+    option.setPricingEngine(mc);
+    std::cout << "MC call NPV  = " << option.NPV() << "\n";          // expect ~8.4819
+    std::cout << "MC std error = " << mc->errorEstimate() << "\n";   // 95% CI half-width = 1.96*this
 
     return 0;
 }

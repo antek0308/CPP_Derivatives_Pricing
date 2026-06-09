@@ -23,5 +23,4 @@ class PlainVanillaPayoff : public Payoff
         OptionType type() const;
         double strike() const;
         Payoff* clone() const override;
-
 };

@@ -3,8 +3,6 @@
 #include "helpers.h"
 #include <cmath>
 
-using namespace std;
-
 ConfidenceLimits::ConfidenceLimits(double z_value_)
     : payoffs(0), z_value(z_value_)
 {
@@ -15,19 +13,17 @@ void ConfidenceLimits::dump_one_result(double result)
     payoffs.push_back(result);
 }
 
-vector<vector<double>> ConfidenceLimits::get_results_so_far() const
+std::vector<MCResult> ConfidenceLimits::get_results_so_far() const
 {
-    vector<vector<double>> Results(3);
+    MCResult ResultsStruct;
+    ResultsStruct.mean = get_vec_mean(payoffs);
+    ResultsStruct.stdError = get_vec_stddev(payoffs) / pow(payoffs.size(), 0.5);
+    ResultsStruct.ciLow = ResultsStruct.mean - z_value * ResultsStruct.stdError;
+    ResultsStruct.ciHigh = ResultsStruct.mean + z_value * ResultsStruct.stdError;
+    ResultsStruct.paths = payoffs.size();
 
-    // increase size
-    Results[0].resize(1);
-    Results[0][0] = get_vec_mean(payoffs);
-    Results[1].resize(1);
-    Results[1][0] = get_vec_stddev(payoffs) / pow(payoffs.size(), 0.5);
-    Results[2].resize(2);
-    Results[2][0] = Results[0][0] - z_value * Results[1][0];
-    Results[2][1] = Results[0][0] + z_value * Results[1][0];
-    return Results;
+    // return ResultsStruct;   // <- a single struct: won't match the vector return type
+    return { ResultsStruct };
 }
 
 StatisticsMC *ConfidenceLimits::clone() const

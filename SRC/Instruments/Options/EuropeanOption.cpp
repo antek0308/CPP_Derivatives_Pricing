@@ -2,7 +2,7 @@
 #include <memory>
 
 EuropeanOption::EuropeanOption(std::shared_ptr<Payoff> payoff, double expiry)
-    : expiry_(expiry), payoff_(payoff)
+    : payoff_(payoff), expiry_(expiry)
 {
 }
 

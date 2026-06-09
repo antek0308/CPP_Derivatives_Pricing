@@ -2,9 +2,10 @@
 #  Makefile for the butterfly pricer (QL-style engine)
 #
 #  Usage:
-#     mingw32-make          build ./pricer.exe
-#     mingw32-make run      build, then run it
-#     mingw32-make clean    delete the executable
+#     mingw32-make            build ./barrier.exe (default)
+#     mingw32-make run        build, then run the barrier test
+#     mingw32-make run-eu     build, then run the European test
+#     mingw32-make clean      delete the executables
 # ============================================================
 
 CXX      := g++
@@ -17,28 +18,34 @@ INCLUDES := -ISRC/Core \
             -ISRC/Instruments/Options \
             -ISRC/Engines \
             -ISRC/Engines/Analytic \
-            -ISRC/Engines/MC
+            -ISRC/Engines/MC \
+            -ISRC/Statistics
 
-# every .cpp in the program (App entry point + library sources)
-SRCS := App/test_engine.cpp \
-        SRC/Core/normals.cpp \
-        SRC/Processes/GBM/black_scholes_process.cpp \
-        SRC/Instruments/instrument.cpp \
-        SRC/Instruments/Options/payoff.cpp \
-        SRC/Instruments/Options/EuropeanOption.cpp \
-        SRC/Engines/Analytic/BlackScholes.cpp \
-        SRC/Engines/Analytic/AnalyticEuropeanEngine.cpp \
-        SRC/Engines/MC/monte_carlo_engine.cpp
+# library sources shared by both executables (no main())
+COMMON_SRCS := SRC/Core/normals.cpp \
+               SRC/Core/helpers.cpp \
+               SRC/Processes/GBM/black_scholes_process.cpp \
+               SRC/Instruments/instrument.cpp \
+               SRC/Instruments/Options/payoff.cpp \
+               SRC/Instruments/Options/EuropeanOption.cpp \
+               SRC/Instruments/Options/BarrierOption.cpp \
+               SRC/Engines/Analytic/BlackScholes.cpp \
+               SRC/Engines/Analytic/AnalyticEuropeanEngine.cpp \
+               SRC/Statistics/conf_limits.cpp
 
-TARGET := pricer.exe
+barrier.exe: App/test_barrier.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrierEngine.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
 
-$(TARGET): $(SRCS)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o $(TARGET)
+pricer.exe: App/test_engine.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloEngine.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
 
-run: $(TARGET)
-	./$(TARGET)
+run: barrier.exe
+	./barrier.exe
+
+run-eu: pricer.exe
+	./pricer.exe
 
 clean:
-	rm -f $(TARGET)
+	rm -f barrier.exe pricer.exe
 
-.PHONY: run clean
+.PHONY: run run-eu clean
