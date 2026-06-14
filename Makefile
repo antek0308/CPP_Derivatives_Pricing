@@ -20,6 +20,7 @@ INCLUDES := -ISRC/Core \
             -ISRC/Engines/Analytic \
             -ISRC/Engines/MC \
             -ISRC/Engines/MC/RNG \
+            -ISRC/Engines/MC/BarrierMonitoring \
             -ISRC/Statistics
 
 # library sources shared by both executables (no main())
@@ -36,6 +37,8 @@ COMMON_SRCS := SRC/Core/normals.cpp \
                SRC/Engines/MC/RNG/Mt19937.cpp \
                SRC/Engines/MC/RNG/AntiThetic.cpp \
                SRC/Engines/MC/RNG/ParkMiller.cpp \
+               SRC/Engines/MC/BarrierMonitoring/DiscreteMonitor.cpp \
+               SRC/Engines/MC/BarrierMonitoring/BrownianBridge.cpp \
                SRC/Statistics/conf_limits.cpp
 
 barrier.exe: App/test_barrier.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrierEngine.cpp
@@ -50,6 +53,15 @@ anti.exe: App/test_anthitetic.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrie
 butterfly.exe: App/test_butterfly.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrierEngine.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
 
+sensitivity.exe: App/butterfly_sensitivity.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrierEngine.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+
+convergence.exe: App/convergence.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrierEngine.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+
+bb.exe: App/test_brownian_bridge.cpp $(COMMON_SRCS) SRC/Engines/MC/MonteCarloBarrierEngine.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+
 run: barrier.exe
 	./barrier.exe
 
@@ -62,7 +74,16 @@ run-anti: anti.exe
 run-fly: butterfly.exe
 	./butterfly.exe
 
-clean:
-	rm -f barrier.exe pricer.exe anti.exe butterfly.exe
+run-sens: sensitivity.exe
+	./sensitivity.exe
 
-.PHONY: run run-eu run-anti run-fly clean
+run-conv: convergence.exe
+	./convergence.exe
+
+run-bb: bb.exe
+	./bb.exe
+
+clean:
+	rm -f barrier.exe pricer.exe anti.exe butterfly.exe sensitivity.exe convergence.exe bb.exe
+
+.PHONY: run run-eu run-anti run-fly run-sens run-conv run-bb clean

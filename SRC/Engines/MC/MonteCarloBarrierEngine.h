@@ -2,6 +2,7 @@
 #include "pricing_engine.h"
 #include "black_scholes_process.h"
 #include "RngBase.h"
+#include "BarrierMonitor.h"
 #include <memory>
 
 // Separate MonteCarlo ENgine for path-dependant payoffs.
@@ -15,10 +16,13 @@ class MonteCarloBarrierEngine: public PricingEngine
         unsigned long number_of_steps_;
         unsigned long number_of_simulations_;
         std::shared_ptr<RngBase> rng_;   // the engine HOLDS its RNG (injected by the caller)
+        std::shared_ptr<BarrierMonitor> monitor_; // Barrier Monitoring (injected; defaults to Discrete)
     public:
         MonteCarloBarrierEngine(BlackScholesProcess process, unsigned long number_of_steps,
                                 unsigned long number_of_simulations,
-                                std::shared_ptr<RngBase> rng);
+                                std::shared_ptr<RngBase> rng,
+                                std::shared_ptr<BarrierMonitor> monitor = nullptr
+                            );
         double calculate(const Instrument& instrument) const override;
         double errorEstimate() const;
 };

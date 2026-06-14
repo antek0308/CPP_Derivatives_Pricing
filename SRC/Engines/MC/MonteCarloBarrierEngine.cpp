@@ -3,16 +3,21 @@
 #include "payoff.h"
 #include <cmath>
 #include <vector>
+#include "BarrierMonitor.h"
+#include "DiscreteMonitor.h"
 
 // Extending the code with gatherer for MC
 #include "conf_limits.h"
 
 MonteCarloBarrierEngine::MonteCarloBarrierEngine(BlackScholesProcess process, unsigned long number_of_steps,
                                                  unsigned long number_of_simulations,
-                                                 std::shared_ptr<RngBase> rng)
+                                                 std::shared_ptr<RngBase> rng,
+                                                 std::shared_ptr<BarrierMonitor> monitor)
     : process_(process), number_of_steps_(number_of_steps), number_of_simulations_(number_of_simulations),
-      rng_(rng)
+      rng_(rng), monitor_(monitor)
 {
+    // default to discrete monitoring if the caller didn't supply one
+    if (!monitor_) monitor_ = std::make_shared<DiscreteMonitor>();
 }
 
 double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
@@ -44,25 +49,29 @@ double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
     for (unsigned long j = 0; j < number_of_simulations_; j++)
     {
         double S = S0;
-        bool breached = false;
         double payoff_value = 0.0;
 
         rng_->get_gaussians(variates); // fill this path's draws from the injected RNG
+
+        // in order to calculate the brownian brdige we need to trace the previous S, so 
+        // here is a trailing S_prev
+        double S_prev = S0;
+        double survival = 1.0;
 
         for (unsigned long i = 0; i < number_of_steps_; i++)
         {
             double Z = variates[i];
             S *= std::exp(drift + diffusion * Z);
-            if (S <= lower_b || S >= upper_b) {breached = true;};
+            survival *= monitor_->step_survival(S_prev, S, lower_b, upper_b, vol, dt);
+            S_prev = S;
+            // NOTE: do NOT break when survival hits 0 — a knock-IN still needs S_T at
+            // expiry. (For knock-OUT, survival=0 zeroes the payoff anyway, so nothing lost.)
         }
         // Alive by default. If breached and out barruer then it is not alive
-        bool alive = true;
-        if (barrier_type == Knock::Out && breached==true){alive=false;};
-        if (barrier_type == Knock::In  && !breached) { alive = false; }
+        if (barrier_type == Knock::Out) payoff_value = survival * payoff(S);
+        if (barrier_type == Knock::In)  payoff_value = (1.0 - survival) * payoff(S);
 
-        if (alive) { payoff_value = payoff(S); }
         gatherer.dump_one_result(payoff_value * std::exp(-r * T));
-
     }
 
     std::vector<MCResult> res = gatherer.get_results_so_far();
