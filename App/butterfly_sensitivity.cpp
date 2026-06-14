@@ -12,14 +12,14 @@
 
 
 // Helper for pricing butterfly only
-double priceButterfly(double spot, double vol, double barrier, unsigned long num_paths)
+double priceButterfly(double spot, double vol, double barrier, double expiry, unsigned long num_paths)
 {
 
     const double strike1 = 100.0; // lower strike
     const double strike2 = 110.0; // middle strike
     const double strike3 = 120.0; // upper strike
 
-    const double r = 0.05, d = 0.0, expiry = 0.5;
+    const double r = 0.05, d = 0.0;   // expiry is now a parameter
     const unsigned long num_steps = 200;
 
     // Defining the process (spot, vol, r, d)
@@ -59,28 +59,34 @@ double priceButterfly(double spot, double vol, double barrier, unsigned long num
 int main()
 {
     // Fixed parameters; each study below varies ONE of them
-    const double S0 = 110.0, vol = 0.23;
+    const double S0 = 110.0, vol = 0.23, T0 = 0.5;
     const double barrier = 130.0;          // upper barrier, above the structure
-    const unsigned long num_paths = 1000000;
+    const unsigned long num_paths = 50000; // bump to 1e6 for the final, smooth report runs
 
     // price vs spot
     std::ofstream f_spot("study_spot.csv");
     f_spot << "spot,price\n";
     for (double s = 80.0; s <= 140.0; s += 1.0)
-        f_spot << s << "," << priceButterfly(s, vol, barrier, num_paths) << "\n";
+        f_spot << s << "," << priceButterfly(s, vol, barrier, T0, num_paths) << "\n";
 
     // price vs vol
     std::ofstream f_vol("study_vol.csv");
     f_vol << "vol,price\n";
     for (double v = 0.01; v <= 0.80; v += 0.01)
-        f_vol << v << "," << priceButterfly(S0, v, barrier, num_paths) << "\n";
+        f_vol << v << "," << priceButterfly(S0, v, barrier, T0, num_paths) << "\n";
 
     // price vs barrier
     std::ofstream f_barrier("study_barrier.csv");
     f_barrier << "barrier,price\n";
     for (double b = 90.0; b <= 150.0; b += 1.0)
-        f_barrier << b << "," << priceButterfly(S0, vol, b, num_paths) << "\n";
+        f_barrier << b << "," << priceButterfly(S0, vol, b, T0, num_paths) << "\n";
 
-    std::cout << "Produced: study_spot.csv, study_vol.csv, study_barrier.csv\n";
+    // price vs maturity (time to expiry) -- explicitly asked for in the assignment
+    std::ofstream f_mat("study_maturity.csv");
+    f_mat << "maturity,price\n";
+    for (double T = 0.05; T <= 2.0; T += 0.05)
+        f_mat << T << "," << priceButterfly(S0, vol, barrier, T, num_paths) << "\n";
+
+    std::cout << "Produced: study_spot.csv, study_vol.csv, study_barrier.csv, study_maturity.csv\n";
     return 0;
 }

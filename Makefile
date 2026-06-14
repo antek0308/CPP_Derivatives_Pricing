@@ -21,12 +21,14 @@ INCLUDES := -ISRC/Core \
             -ISRC/Engines/MC \
             -ISRC/Engines/MC/RNG \
             -ISRC/Engines/MC/BarrierMonitoring \
+            -ISRC/TermStructures \
             -ISRC/Statistics
 
 # library sources shared by both executables (no main())
 COMMON_SRCS := SRC/Core/normals.cpp \
                SRC/Core/helpers.cpp \
                SRC/Processes/GBM/black_scholes_process.cpp \
+               SRC/TermStructures/parameters.cpp \
                SRC/Instruments/instrument.cpp \
                SRC/Instruments/Options/payoff.cpp \
                SRC/Instruments/Options/EuropeanOption.cpp \

@@ -1,5 +1,6 @@
 #include "option_type.h"
 #include <cmath>
+#include <algorithm>   // std::max (MSVC doesn't pull it in transitively like g++)
 #include "payoff.h"
 
 PlainVanillaPayoff::PlainVanillaPayoff(OptionType type, double strike)

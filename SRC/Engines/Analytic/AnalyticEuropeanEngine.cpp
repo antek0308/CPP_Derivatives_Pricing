@@ -2,6 +2,7 @@
 #include "EuropeanOption.h"   // we read its payoff()/expiry()
 #include "payoff.h"           // PlainVanillaPayoff: strike(), type()
 #include "BlackScholes.h" // bs_price
+#include <cmath>          // sqrt
 
 // constructor: the engine remembers the market it prices against
 AnalyticEuropeanEngine::AnalyticEuropeanEngine(BlackScholesProcess process)
@@ -29,8 +30,14 @@ double AnalyticEuropeanEngine::calculate(const Instrument& instrument) const
     // bs_price wants an int flag (1 = call, 0 = put); translate the enum.
     int call = (payoff.type() == OptionType::Call) ? 1 : 0;
 
+    double T = option.expiry();
+    // BS needs scalars; collapse the (possibly time-varying) curves to their
+    // effective constants over [0, T]: average rate, RMS vol.
+    double r   = process_.r().get_mean(0.0, T);
+    double d   = process_.d().get_mean(0.0, T);
+    double vol = std::sqrt(process_.vol().get_root_mean_square(0.0, T));
+
     // Combine MARKET (process_) + CONTRACT (payoff, option) -> formula -> price.
     return bs_price(process_.spot(), payoff.strike(),
-                    process_.r(), process_.d(), process_.vol(),
-                    option.expiry(), call);
+                    r, d, vol, T, call);
 }

@@ -28,13 +28,15 @@ double MonteCarloEngine::calculate(const Instrument& instrument) const
     std::mt19937_64 rng(12345);
     std::normal_distribution<double> norm(0.0, 1.0);
 
-    double vol = process_.vol();
     double S0 = process_.spot();
-    double r = process_.r();
-    double d = process_.d();
     double T = option.expiry();
-    double drift = (r - d - 0.5*vol*vol)*T;
-    double diffusion = vol * std::sqrt(option.expiry());
+
+    // integrate the curves over the whole life [0, T] (constant -> r*T, vol^2*T)
+    double drift     = process_.r().get_integral(0.0, T)
+                     - process_.d().get_integral(0.0, T)
+                     - 0.5 * process_.vol().get_integral_square(0.0, T);
+    double diffusion = std::sqrt(process_.vol().get_integral_square(0.0, T));
+    double discount  = std::exp(-process_.r().get_integral(0.0, T));
 
     ConfidenceLimits gatherer(1.96); // Setting confidence limits to 95% (1.96 = normal quantile)
 
@@ -42,7 +44,7 @@ double MonteCarloEngine::calculate(const Instrument& instrument) const
     {
         double Z = norm(rng);
         double ST = S0 * std::exp(drift + diffusion * Z);
-        gatherer.dump_one_result(payoff(ST) * std::exp(-r * T)); // feed the DISCOUNTED payoff
+        gatherer.dump_one_result(payoff(ST) * discount); // feed the DISCOUNTED payoff
     }
 
     std::vector<MCResult> res = gatherer.get_results_so_far();

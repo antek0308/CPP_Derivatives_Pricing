@@ -26,15 +26,27 @@ double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
 
     const Payoff& payoff = option.payoff();
 
-    double vol = process_.vol();
     double S0 = process_.spot();
-    double r = process_.r();
-    double d = process_.d();
     double T = option.expiry();
 
     double dt = T / static_cast<double>(number_of_steps_);
-    double drift = (r - d - 0.5*vol*vol)*dt;
-    double diffusion = vol * std::sqrt(dt);
+
+    // precompute per-step drift / diffusion / variance from the (possibly
+    // time-varying) curves. For constant params every step is identical.
+    std::vector<double> drifts(number_of_steps_);
+    std::vector<double> diffusions(number_of_steps_);
+    std::vector<double> variances(number_of_steps_);
+    for (unsigned long i = 0; i < number_of_steps_; i++)
+    {
+        double t1 = i * dt, t2 = (i + 1) * dt;
+        double var = process_.vol().get_integral_square(t1, t2);
+        drifts[i]     = process_.r().get_integral(t1, t2)
+                      - process_.d().get_integral(t1, t2)
+                      - 0.5 * var;
+        diffusions[i] = std::sqrt(var);
+        variances[i]  = var;
+    }
+    double discount = std::exp(-process_.r().get_integral(0.0, T));
 
     // Barrier-specific
     double lower_b = option.lower_barrier();
@@ -58,11 +70,15 @@ double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
         double S_prev = S0;
         double survival = 1.0;
 
+        // born-dead / born-activated: if the spot already sits past the barrier at t=0,
+        // an OUT option is knocked out (and an IN option activated) immediately.
+        if (S0 <= lower_b || S0 >= upper_b) survival = 0.0;
+
         for (unsigned long i = 0; i < number_of_steps_; i++)
         {
             double Z = variates[i];
-            S *= std::exp(drift + diffusion * Z);
-            survival *= monitor_->step_survival(S_prev, S, lower_b, upper_b, vol, dt);
+            S *= std::exp(drifts[i] + diffusions[i] * Z);
+            survival *= monitor_->step_survival(S_prev, S, lower_b, upper_b, variances[i]);
             S_prev = S;
             // NOTE: do NOT break when survival hits 0 — a knock-IN still needs S_T at
             // expiry. (For knock-OUT, survival=0 zeroes the payoff anyway, so nothing lost.)
@@ -71,7 +87,7 @@ double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
         if (barrier_type == Knock::Out) payoff_value = survival * payoff(S);
         if (barrier_type == Knock::In)  payoff_value = (1.0 - survival) * payoff(S);
 
-        gatherer.dump_one_result(payoff_value * std::exp(-r * T));
+        gatherer.dump_one_result(payoff_value * discount);
     }
 
     std::vector<MCResult> res = gatherer.get_results_so_far();

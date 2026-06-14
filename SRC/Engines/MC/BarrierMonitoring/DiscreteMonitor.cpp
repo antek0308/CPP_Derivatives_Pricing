@@ -2,7 +2,7 @@
 
 double DiscreteMonitor::step_survival(
     double S_prev, double S_curr, double lower,
-    double upper, double vol, double dt
+    double upper, double variance
 ) const
 {
     // 0 if knocked out and 1 if not

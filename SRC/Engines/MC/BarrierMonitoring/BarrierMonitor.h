@@ -9,7 +9,7 @@ class BarrierMonitor
     public:
         virtual double step_survival(
             double S_prev, double S_curr, double lower,
-            double upper, double vol, double dt
+            double upper, double variance     // increment variance for this step (= integral of vol^2)
         ) const = 0;
         // destructor
         virtual ~BarrierMonitor() {}
