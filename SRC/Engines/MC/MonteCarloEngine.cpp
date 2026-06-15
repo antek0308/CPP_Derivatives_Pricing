@@ -14,14 +14,7 @@ MonteCarloEngine::MonteCarloEngine(BlackScholesProcess process, unsigned long nu
 
 double MonteCarloEngine::calculate(const Instrument& instrument) const
 {
-    // Dynamic casts of base classes. Again what in code should tell me that I need to do it?
-    // Q: ...
-    // "What in code tells me I need to cast?"
-    // cast only when the method you want isn't visible on the type you currently hold.
-    // instrument is Instrument& -> you want payoff()/expiry(), which live on EuropeanOption,
-    // not Instrument -> cast needed.
-    // option.payoff() is Payoff& -> you want operator(), which IS on Payoff -> no cast
-    //
+    // cast the generic Instrument& to EuropeanOption so we can read payoff() and expiry()
     const EuropeanOption& option = dynamic_cast<const EuropeanOption&>(instrument);
     const Payoff& payoff = option.payoff();
 
@@ -31,7 +24,7 @@ double MonteCarloEngine::calculate(const Instrument& instrument) const
     double S0 = process_.spot();
     double T = option.expiry();
 
-    // integrate the curves over the whole life [0, T] (constant -> r*T, vol^2*T)
+    // integrate the curves over the whole life [0,T] (for constant parameters this is r*T and vol^2*T)
     double drift     = process_.r().get_integral(0.0, T)
                      - process_.d().get_integral(0.0, T)
                      - 0.5 * process_.vol().get_integral_square(0.0, T);
@@ -44,12 +37,12 @@ double MonteCarloEngine::calculate(const Instrument& instrument) const
     {
         double Z = norm(rng);
         double ST = S0 * std::exp(drift + diffusion * Z);
-        gatherer.dump_one_result(payoff(ST) * discount); // feed the DISCOUNTED payoff
+        gatherer.dump_one_result(payoff(ST) * discount); // add the discounted payoff to the gatherer
     }
 
     std::vector<MCResult> res = gatherer.get_results_so_far();
     double price = res.back().mean;
-    std_error_ = res.back().stdError; // cache into the mutable member for errorEstimate()
+    std_error_ = res.back().stdError; // save the error for errorEstimate()
 
     return price;
 }

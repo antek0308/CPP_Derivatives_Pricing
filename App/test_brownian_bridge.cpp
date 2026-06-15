@@ -1,3 +1,5 @@
+// File for testing the results based on the Brownian Bridge and Descrete Monitoring 
+
 #include <iostream>
 #include <iomanip>
 #include <memory>
@@ -9,9 +11,9 @@
 #include "DiscreteMonitor.h"
 #include "BrownianBridge.h"
 
-// Price a down-and-out call with a given step count and a given monitor.
-// Barrier sits CLOSE to spot (105 vs 110) so between-step crossings are frequent
-// -> the discrete-vs-bridge gap is large and easy to see.
+// prices a down-and-out call with a given number of steps and a given monitor.
+// I put the barrier close to the spot (105 vs 110) so the path crosses it often between
+// steps, which makes the difference between discrete and bridge monitoring easy to see.
 double priceDownOut(unsigned long num_steps, std::shared_ptr<BarrierMonitor> monitor)
 {
     const double S0 = 110.0, vol = 0.23, r = 0.05, d = 0.0, expiry = 0.5;
@@ -22,7 +24,7 @@ double priceDownOut(unsigned long num_steps, std::shared_ptr<BarrierMonitor> mon
     auto payoff = std::make_shared<PlainVanillaPayoff>(OptionType::Call, strike);
     auto option = std::make_shared<BarrierOption>(BarrierOption::downOut(payoff, expiry, barrier));
 
-    // same seed for both monitors -> the difference is purely the monitoring scheme
+    // same seed for both monitors, so the only difference is the monitoring method
     auto engine = std::make_shared<MonteCarloBarrierEngine>(
         process, num_steps, num_paths, std::make_shared<Mt19937Rng>(12345), monitor);
     option->setPricingEngine(engine);

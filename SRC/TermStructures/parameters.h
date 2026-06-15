@@ -1,3 +1,5 @@
+// This file is fully taken from the Project11/12, so I will not comment here
+
 #ifndef PARAMETERS_H
 #define PARAMETERS_H
 

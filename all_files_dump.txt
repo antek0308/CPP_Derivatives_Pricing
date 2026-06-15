@@ -1,0 +1,2091 @@
+==================================================
+FILE: App/butterfly_sensitivity.cpp
+==================================================
+#include <iostream>
+#include <iomanip>
+#include <memory>
+#include "payoff.h"
+#include "BarrierOption.h"
+#include "black_scholes_process.h"
+#include "MonteCarloBarrierEngine.h"
+#include "Mt19937.h"
+#include <fstream>
+#include "Portfolio.h"
+#include "AntiThetic.h"
+
+
+// Helper for pricing butterfly only
+double priceButterfly(double spot, double vol, double barrier, double expiry, unsigned long num_paths)
+{
+
+    const double strike1 = 100.0; // lower strike
+    const double strike2 = 110.0; // middle strike
+    const double strike3 = 120.0; // upper strike
+
+    const double r = 0.05, d = 0.0;   // expiry is now a parameter
+    const unsigned long num_steps = 200;
+
+    // Defining the process (spot, vol, r, d)
+    // It is GBM, but here referenced in "finance terms"
+    BlackScholesProcess process(spot, vol, r, d);
+
+    // European PlainVanilla Payoff
+    auto payoff1 = std::make_shared<PlainVanillaPayoff>(OptionType::Put, strike1);
+    auto payoff2 = std::make_shared<PlainVanillaPayoff>(OptionType::Put, strike2);
+    auto payoff3 = std::make_shared<PlainVanillaPayoff>(OptionType::Put, strike3);
+
+    // Defining the isntruments - puts are out-and-out
+    auto firstLeg = std::make_shared<BarrierOption>(BarrierOption::upOut(payoff1, expiry, barrier));
+    auto secondLeg = std::make_shared<BarrierOption>(BarrierOption::upOut(payoff2, expiry, barrier));
+    auto thirdLeg = std::make_shared<BarrierOption>(BarrierOption::upOut(payoff3, expiry, barrier));
+
+
+    // Mt19937 engine without antithetic varites trick
+    auto plain_eng = std::make_shared<MonteCarloBarrierEngine>(
+        process, num_steps, num_paths, 
+        std::make_shared<AntiThetic>(std::make_shared<Mt19937Rng>(12345)));
+
+    firstLeg->setPricingEngine(plain_eng);
+    secondLeg->setPricingEngine(plain_eng);
+    thirdLeg->setPricingEngine(plain_eng);
+
+    // Instatiating the portfolio and adding the legs
+    Portfolio LongPutButterfly;
+    LongPutButterfly.add(1, firstLeg);
+    LongPutButterfly.add(-2, secondLeg);
+    LongPutButterfly.add(1, thirdLeg);
+
+    return LongPutButterfly.NPV();
+}
+
+
+int main()
+{
+    // fixed parameters, each study below changes one of them
+    const double S0 = 110.0, vol = 0.23, T0 = 0.5;
+    const double barrier = 130.0;          // barrier above the structure
+    const unsigned long num_paths = 50000; // use more paths (like 1e6) for the final report runs
+
+    // price vs spot
+    std::ofstream f_spot("study_spot.csv");
+    f_spot << "spot,price\n";
+    for (double s = 80.0; s <= 140.0; s += 1.0)
+        f_spot << s << "," << priceButterfly(s, vol, barrier, T0, num_paths) << "\n";
+
+    // price vs vol
+    std::ofstream f_vol("study_vol.csv");
+    f_vol << "vol,price\n";
+    for (double v = 0.01; v <= 0.80; v += 0.01)
+        f_vol << v << "," << priceButterfly(S0, v, barrier, T0, num_paths) << "\n";
+
+    // price vs barrier
+    std::ofstream f_barrier("study_barrier.csv");
+    f_barrier << "barrier,price\n";
+    for (double b = 90.0; b <= 150.0; b += 1.0)
+        f_barrier << b << "," << priceButterfly(S0, vol, b, T0, num_paths) << "\n";
+
+    // price vs maturity (time to expiry)
+    std::ofstream f_mat("study_maturity.csv");
+    f_mat << "maturity,price\n";
+    for (double T = 0.05; T <= 2.0; T += 0.05)
+        f_mat << T << "," << priceButterfly(S0, vol, barrier, T, num_paths) << "\n";
+
+    std::cout << "Produced: study_spot.csv, study_vol.csv, study_barrier.csv, study_maturity.csv\n";
+    return 0;
+}
+
+==================================================
+FILE: App/convergence.cpp
+==================================================
+#include <iostream>
+#include <iomanip>
+#include <memory>
+#include <fstream>
+#include <utility>   // std::pair
+#include "payoff.h"
+#include "BarrierOption.h"
+#include "black_scholes_process.h"
+#include "MonteCarloBarrierEngine.h"
+#include "Mt19937.h"
+
+// prices one barrier option (an up-and-out put, K=110, barrier=130) with num_paths paths.
+// I use a single option instead of the portfolio so I can also read the std error from the engine.
+// returns the price and the error as a pair.
+std::pair<double, double> priceOneOption(unsigned long num_paths)
+{
+    const double S0 = 110.0, vol = 0.23, r = 0.05, d = 0.0, expiry = 0.5;
+    const double strike = 110.0, barrier = 130.0;
+    const unsigned long num_steps = 200;
+
+    BlackScholesProcess process(S0, vol, r, d);
+
+    auto payoff = std::make_shared<PlainVanillaPayoff>(OptionType::Put, strike);
+    auto option = std::make_shared<BarrierOption>(BarrierOption::upOut(payoff, expiry, barrier));
+
+    // new engine each call with the same seed, so every row is reproducible
+    auto engine = std::make_shared<MonteCarloBarrierEngine>(
+        process, num_steps, num_paths, std::make_shared<Mt19937Rng>(12345));
+    option->setPricingEngine(engine);
+
+    double price = option->NPV();
+    double error = engine->errorEstimate();
+    return {price, error};
+}
+
+int main()
+{
+    std::ofstream f("convergence.csv");
+    f << "num_paths,price,std_error\n";
+
+    std::cout << std::fixed << std::setprecision(6);
+    for (unsigned long n = 1024; n <= (1u << 20); n *= 2)   // 2^10 ... 2^20
+    {
+        auto [price, error] = priceOneOption(n);            // unpack the pair into price and error
+        f << n << "," << price << "," << error << "\n";
+        std::cout << "n = " << n << "   price = " << price << "   std_err = " << error << "\n";
+    }
+
+    std::cout << "Produced: convergence.csv\n";
+    return 0;
+}
+
+
+==================================================
+FILE: App/test_MC_analytic_engine.cpp
+==================================================
+#include <iostream>
+#include <memory>
+#include "payoff.h"
+#include "EuropeanOption.h"
+#include "black_scholes_process.h"
+#include "AnalyticEuropeanEngine.h"
+#include "MonteCarloEngine.h"
+
+int main()
+{
+    // 1. payoff (what kind of option)
+    auto payoff = std::make_shared<PlainVanillaPayoff>(OptionType::Call, 110);
+
+    // 2. the option = payoff + expiry
+    EuropeanOption option(payoff, 0.5);
+
+    // 3. the market, bundled as a process   (spot, vol, r, d)
+    BlackScholesProcess process(110, 0.23, 0.05, 0.0);
+
+    // 4 + 5. build the engine around the market, then plug it into the option
+    option.setPricingEngine(std::make_shared<AnalyticEuropeanEngine>(process));
+
+    std::cout << "Analytic call NPV = " << option.NPV() << "\n";   // expect 8.4819
+
+    unsigned long num_paths = 1000000;
+    // Keep a typed handle: errorEstimate() lives on MonteCarloEngine, NOT on the
+    // generic PricingEngine base, so a base pointer couldn't reach it.
+    auto mc = std::make_shared<MonteCarloEngine>(process, num_paths);
+    option.setPricingEngine(mc);
+    std::cout << "MC call NPV  = " << option.NPV() << "\n";          // expect ~8.4819
+    std::cout << "MC std error = " << mc->errorEstimate() << "\n";   // 95% CI half-width = 1.96*this
+
+    return 0;
+}
+
+
+==================================================
+FILE: App/test_MC_stats.cpp
+==================================================
+#include <iostream>
+#include <memory>
+#include "payoff.h"
+#include "EuropeanOption.h"
+#include "black_scholes_process.h"
+#include "AnalyticEuropeanEngine.h"
+#include "MonteCarloEngine.h"
+
+int main()
+{
+    auto payoff = std::make_shared<PlainVanillaPayoff>(OptionType::Call, 110);
+    EuropeanOption option(payoff, 0.5);
+
+    BlackScholesProcess process(110, 0.23, 0.05, 0.0);
+
+    option.setPricingEngine(std::make_shared<AnalyticEuropeanEngine>(process));
+
+    unsigned long num_paths = 1000000;
+    auto mc = std::make_shared<MonteCarloEngine>(process, num_paths);
+    option.setPricingEngine(mc);
+    std::cout << "MC call NPV  = " << option.NPV() << "\n";          // expect ~8.4819
+    std::cout << "MC std error = " << mc->errorEstimate() << "\n";   // 95% CI half-width = 1.96*this
+
+    return 0;
+}
+
+
+==================================================
+FILE: App/test_anthitetic.cpp
+==================================================
+#include <iostream>
+#include <iomanip>
+#include <memory>
+#include "payoff.h"
+#include "BarrierOption.h"
+#include "EuropeanOption.h"
+#include "black_scholes_process.h"
+#include "MonteCarloBarrierEngine.h"
+#include "AnalyticEuropeanEngine.h"
+#include "Mt19937.h"
+#include "AntiThetic.h"
+#include "ParkMiller.h"
+
+int main()
+{
+    // sample contract params from assignment
+    const double expiry = 0.5;
+    const double strike = 110.0;
+    const double barrier = 100.0;
+
+    auto payoff = std::make_shared<PlainVanillaPayoff>(OptionType::Call, strike);
+    BlackScholesProcess process(110.0, 0.23, 0.05, 0.0); // spot, vol, r, d
+
+    const unsigned long num_steps = 100;
+    const unsigned long num_paths = 200000;
+
+    BarrierOption down_out = BarrierOption::downOut(payoff, expiry, barrier);
+
+    // Mt19937 WITHOUT antithetic
+    auto plain_eng = std::make_shared<MonteCarloBarrierEngine>(
+        process, num_steps, num_paths, std::make_shared<Mt19937Rng>(12345));
+    down_out.setPricingEngine(plain_eng);
+    const double out_price = down_out.NPV();
+    const double out_error = plain_eng->errorEstimate();
+
+    // Mt19937 WITH antithetic (decorator wraps it)
+    auto anti_eng = std::make_shared<MonteCarloBarrierEngine>(
+        process, num_steps, num_paths,
+        std::make_shared<AntiThetic>(std::make_shared<Mt19937Rng>(12345)));
+    down_out.setPricingEngine(anti_eng);
+    const double out_price_anti = down_out.NPV();
+    const double out_error_anti = anti_eng->errorEstimate();
+
+    // ParkMiller WITH antithetic (decorator wraps it)
+    auto anti_eng_PM = std::make_shared<MonteCarloBarrierEngine>(
+        process, num_steps, num_paths,
+        std::make_shared<AntiThetic>(std::make_shared<ParkMillerRng>(12345)));
+    down_out.setPricingEngine(anti_eng_PM);
+    const double out_price_anti_PM = down_out.NPV();
+    const double out_error_anti_PM = anti_eng_PM->errorEstimate();
+
+    std::cout << std::fixed << std::setprecision(5);
+    std::cout << "Down-and-out MT19937 WITHOUT antithetic = " << out_price << " (MC std err " << out_error << ")\n";
+    std::cout << "Down-and-out MT19937 WITH antithetic = " << out_price_anti << " (MC std err " << out_error_anti << ")\n";
+    std::cout << "Down-and-out ParkMiller WITH antithetic = " << out_price_anti_PM << " (MC std err " << out_error_anti_PM << ")\n";
+
+    return 0;
+}
+
+
+==================================================
+FILE: App/test_barrier.cpp
+==================================================
+#include <iostream>
+#include <iomanip>
+#include <memory>
+#include "payoff.h"
+#include "BarrierOption.h"
+#include "EuropeanOption.h"
+#include "black_scholes_process.h"
+#include "MonteCarloBarrierEngine.h"
+#include "AnalyticEuropeanEngine.h"
+#include "Mt19937.h"
+#include "AntiThetic.h"
+
+int main()
+{
+    // sample contract params from assignment
+    const double expiry = 0.5;
+    const double strike = 110.0;
+    const double barrier = 100.0;
+
+    auto payoff = std::make_shared<PlainVanillaPayoff>(OptionType::Call, strike);
+    BlackScholesProcess process(110.0, 0.23, 0.05, 0.0); // spot, vol, r, d
+
+    const unsigned long num_steps = 100; // steps per path
+    const unsigned long num_paths = 200000; // Monte Carlo samples
+
+    // Vanilla reference - analytic European call
+    EuropeanOption vanilla(payoff, expiry);
+    vanilla.setPricingEngine(std::make_shared<AnalyticEuropeanEngine>(process));
+    const double vanilla_price = vanilla.NPV();
+
+    // the two halves of the barrier option.
+    // each leg gets its own engine with the same seed, so both use the same paths.
+    // then out + in should equal the vanilla price (parity), up to Monte Carlo noise.
+    auto out_engine = std::make_shared<MonteCarloBarrierEngine>
+    (
+        process, num_steps, num_paths, std::make_shared<Mt19937Rng>(12345)
+    );
+
+    BarrierOption down_out = BarrierOption::downOut(payoff, expiry, barrier);
+    down_out.setPricingEngine(out_engine);
+    const double out_price = down_out.NPV();
+    const double out_error = out_engine->errorEstimate();
+
+    auto in_engine = std::make_shared<MonteCarloBarrierEngine>
+    (
+        process, num_steps, num_paths, std::make_shared<Mt19937Rng>(12345)
+    );
+    BarrierOption down_in = BarrierOption::downIn(payoff, expiry, barrier);
+    down_in.setPricingEngine(in_engine);
+    const double in_price = down_in.NPV();
+
+    // in/out parity: downOut + downIn = vanilla.
+    // on each path the option either touches the barrier (In pays, Out is 0) or it does
+    // not (Out pays, In is 0), so the sum is always the vanilla payoff.
+    const double parity_sum = out_price + in_price;
+    const double parity_gap = parity_sum - vanilla_price;
+
+    std::cout << std::fixed << std::setprecision(5);
+    std::cout << "Vanilla call (analytic) = " << vanilla_price << "\n";
+    std::cout << "Down-and-out call = " << out_price << " (MC std err " << out_error << ")\n";
+    std::cout << "Down-and-in call = " << in_price  << "\n";
+    std::cout << "Out + In = " << parity_sum << "\n";
+    std::cout << "Parity gap vs vanilla = " << parity_gap;
+
+    return 0;
+}
+
+
+==================================================
+FILE: App/test_brownian_bridge.cpp
+==================================================
+#include <iostream>
+#include <iomanip>
+#include <memory>
+#include "payoff.h"
+#include "BarrierOption.h"
+#include "black_scholes_process.h"
+#include "MonteCarloBarrierEngine.h"
+#include "Mt19937.h"
+#include "DiscreteMonitor.h"
+#include "BrownianBridge.h"
+
+// prices a down-and-out call with a given number of steps and a given monitor.
+// I put the barrier close to the spot (105 vs 110) so the path crosses it often between
+// steps, which makes the difference between discrete and bridge monitoring easy to see.
+double priceDownOut(unsigned long num_steps, std::shared_ptr<BarrierMonitor> monitor)
+{
+    const double S0 = 110.0, vol = 0.23, r = 0.05, d = 0.0, expiry = 0.5;
+    const double strike = 110.0, barrier = 105.0;
+    const unsigned long num_paths = 100000;
+
+    BlackScholesProcess process(S0, vol, r, d);
+    auto payoff = std::make_shared<PlainVanillaPayoff>(OptionType::Call, strike);
+    auto option = std::make_shared<BarrierOption>(BarrierOption::downOut(payoff, expiry, barrier));
+
+    // same seed for both monitors, so the only difference is the monitoring method
+    auto engine = std::make_shared<MonteCarloBarrierEngine>(
+        process, num_steps, num_paths, std::make_shared<Mt19937Rng>(12345), monitor);
+    option->setPricingEngine(engine);
+    return option->NPV();
+}
+
+int main()
+{
+    std::cout << std::fixed << std::setprecision(5);
+    std::cout << "steps |  discrete  |   bridge   |   diff\n";
+    std::cout << "------+------------+------------+---------\n";
+
+    unsigned long steps[] = {5, 10, 25, 50, 100, 200, 500};
+    for (unsigned long n : steps)
+    {
+        double disc   = priceDownOut(n, std::make_shared<DiscreteMonitor>());
+        double bridge = priceDownOut(n, std::make_shared<BrownianBridge>());
+        std::cout << std::setw(5) << n
+                  << " | " << std::setw(10) << disc
+                  << " | " << std::setw(10) << bridge
+                  << " | " << std::setw(8) << (disc - bridge) << "\n";
+    }
+    return 0;
+}
+
+
+==================================================
+FILE: App/test_butterfly.cpp
+==================================================
+#include <iostream>
+#include <iomanip>
+#include <memory>
+#include "payoff.h"
+#include "BarrierOption.h"
+#include "black_scholes_process.h"
+#include "MonteCarloBarrierEngine.h"
+#include "Mt19937.h"
+// #include "AntiThetic.h"
+#include "Portfolio.h"
+
+int main()
+{
+    // Numbers from assignment
+    const double S0 = 110, vol = 0.23, r = 0.05, d = 0.0, expiry = 0.5;
+
+    // Strikes and barrier not provided
+    // As it is long fly, it makes sense to position the middle strike at S0
+    const double strike1 = 100.0; // lower strike
+    const double strike2 = 110.0; // middle strike
+    const double strike3 = 120.0; // upper strike
+    const double barrier = 130.0; // barrier "above" whole structure.
+
+    // MC simulation steps and number of simulations not provided 
+    const unsigned long num_steps = 100;
+    const unsigned long num_paths = 100000;
+    
+    // Defining the process (spot, vol, r, d)
+    // It is GBM, but here referenced in "finance terms"
+    BlackScholesProcess process(S0, vol, r, d);
+
+    // European PlainVanilla Payoff
+    auto payoff1 = std::make_shared<PlainVanillaPayoff>(OptionType::Put, strike1);
+    auto payoff2 = std::make_shared<PlainVanillaPayoff>(OptionType::Put, strike2);
+    auto payoff3 = std::make_shared<PlainVanillaPayoff>(OptionType::Put, strike3);
+
+    // Defining the isntruments - puts are out-and-out
+    auto firstLeg = std::make_shared<BarrierOption>(BarrierOption::upOut(payoff1, expiry, barrier));
+    auto secondLeg = std::make_shared<BarrierOption>(BarrierOption::upOut(payoff2, expiry, barrier));
+    auto thirdLeg = std::make_shared<BarrierOption>(BarrierOption::upOut(payoff3, expiry, barrier));
+
+    // Mt19937 engine without antithetic varites trick
+    auto plain_eng = std::make_shared<MonteCarloBarrierEngine>(
+        process, num_steps, num_paths, std::make_shared<Mt19937Rng>(12345));
+    
+    firstLeg->setPricingEngine(plain_eng);
+    secondLeg->setPricingEngine(plain_eng);
+    thirdLeg->setPricingEngine(plain_eng);
+
+    // Instatiating the portfolio and adding the legs
+    Portfolio LongPutButterfly;
+    LongPutButterfly.add(1, firstLeg);
+    LongPutButterfly.add(-2, secondLeg);
+    LongPutButterfly.add(1, thirdLeg);
+    
+    const double price = LongPutButterfly.NPV();
+
+    std::cout << std::fixed << std::setprecision(5);
+    std::cout << "Price = " << price << "\n";
+    
+    return 0;
+}
+
+
+==================================================
+FILE: SRC/Core/helpers.cpp
+==================================================
+#include <cmath>
+#include <vector>
+#include <iostream>
+
+using namespace std;
+
+// general function for mean
+double get_vec_mean(std::vector<double> this_vec)
+{
+
+	double runningSum = 0.0;
+	int this_size = this_vec.size();
+
+	for (int i = 0; i < this_size; i++)
+	{
+		runningSum += this_vec[i];
+	}
+
+	return runningSum / double(this_size);
+}
+
+// general function for standard deviation
+double get_vec_stddev(std::vector<double> this_vec)
+{
+
+	double runningSum = 0.0;
+	int this_size = this_vec.size();
+	double thisMean = get_vec_mean(this_vec);
+
+	for (int i = 0; i < this_size; i++)
+	{
+		runningSum += pow((this_vec[i] - thisMean), 2);
+	}
+
+	return sqrt(runningSum / (this_size - 1));
+}
+
+void print_results(std::vector<std::vector<double>> results)
+{
+	for (unsigned long i = 0; i < results.size(); i++)
+	{
+		for (unsigned long j = 0; j < results[i].size(); j++)
+		{
+			std::cout << results[i][j] << " ";
+		}
+		std::cout << "\n";
+	}
+}
+
+==================================================
+FILE: SRC/Core/helpers.h
+==================================================
+#ifndef HELPERS_H
+#define HELPERS_H
+
+#include <vector>
+
+double get_vec_mean(std::vector<double> this_vec);
+double get_vec_stddev(std::vector<double> this_vec);
+void print_results(std::vector<std::vector<double>> results);
+
+#endif
+
+==================================================
+FILE: SRC/Core/minmax.h
+==================================================
+#ifndef MINMAX_H
+#define MINMAX_H
+
+template <class T>
+const T &max(const T &a, const T &b)
+{
+    return (a < b) ? b : a;
+}
+
+template <class T>
+const T &min(const T &a, const T &b)
+{
+    return (a > b) ? b : a;
+}
+#endif
+
+
+==================================================
+FILE: SRC/Core/normals.cpp
+==================================================
+#include <cmath>
+#include "normals.h"
+
+const double OneOverRootTwoPi = 0.398942280401433;
+
+// probability density for a standard Gaussian distribution
+double NormalDensity(double x)
+{
+    return OneOverRootTwoPi * exp(-x * x / 2);
+}
+
+// the InverseCumulativeNormal function via the Beasley-Springer/Moro approximation
+double InverseCumulativeNormal(double u)
+{
+
+    static double a[4] = {2.50662823884,
+                          -18.61500062529,
+                          41.39119773534,
+                          -25.44106049637};
+
+    static double b[4] = {-8.47351093090,
+                          23.08336743743,
+                          -21.06224101826,
+                          3.13082909833};
+
+    static double c[9] = {0.3374754822726147,
+                          0.9761690190917186,
+                          0.1607979714918209,
+                          0.0276438810333863,
+                          0.0038405729373609,
+                          0.0003951896511919,
+                          0.0000321767881768,
+                          0.0000002888167364,
+                          0.0000003960315187};
+
+    double x = u - 0.5;
+    double r;
+
+    if (fabs(x) < 0.42) // Beasley-Springer
+    {
+        double y = x * x;
+
+        r = x * (((a[3] * y + a[2]) * y + a[1]) * y + a[0]) /
+            ((((b[3] * y + b[2]) * y + b[1]) * y + b[0]) * y + 1.0);
+    }
+    else // Moro
+    {
+
+        r = u;
+
+        if (x > 0.0)
+            r = 1.0 - u;
+
+        r = log(-log(r));
+
+        r = c[0] + r * (c[1] + r * (c[2] + r * (c[3] + r * (c[4] + r * (c[5] + r * (c[6] +
+                                                                                    r * (c[7] + r * c[8])))))));
+
+        if (x < 0.0)
+            r = -r;
+    }
+
+    return r;
+}
+
+// standard normal cumulative distribution function
+double CumulativeNormal(double x)
+{
+    static double a[5] = {0.319381530,
+                          -0.356563782,
+                          1.781477937,
+                          -1.821255978,
+                          1.330274429};
+
+    double result;
+
+    if (x < -7.0)
+        result = NormalDensity(x) / sqrt(1. + x * x);
+
+    else
+    {
+        if (x > 7.0)
+            result = 1.0 - CumulativeNormal(-x);
+        else
+        {
+            double tmp = 1.0 / (1.0 + 0.2316419 * fabs(x));
+
+            result = 1 - NormalDensity(x) *
+                             (tmp * (a[0] + tmp * (a[1] + tmp * (a[2] + tmp * (a[3] + tmp * a[4])))));
+
+            if (x <= 0.0)
+                result = 1.0 - result;
+        }
+    }
+
+    return result;
+}
+
+
+==================================================
+FILE: SRC/Core/normals.h
+==================================================
+#ifndef NORMALS_H
+#define NORMALS_H
+
+double NormalDensity(double x);
+double CumulativeNormal(double x);
+double InverseCumulativeNormal(double x);
+
+#endif
+
+
+==================================================
+FILE: SRC/Engines/Analytic/AnalyticEuropeanEngine.cpp
+==================================================
+#include "AnalyticEuropeanEngine.h"
+#include "EuropeanOption.h"   // we read its payoff()/expiry()
+#include "payoff.h"           // PlainVanillaPayoff: strike(), type()
+#include "BlackScholes.h" // bs_price
+#include <cmath>          // sqrt
+
+// constructor, stores the market (process)
+AnalyticEuropeanEngine::AnalyticEuropeanEngine(BlackScholesProcess process)
+    : process_(process)
+{
+}
+
+double AnalyticEuropeanEngine::calculate(const Instrument& instrument) const
+{
+    // we get a generic Instrument&, which only shows Instrument methods.
+    // cast it to EuropeanOption so we can use payoff() and expiry()
+    const EuropeanOption& option = dynamic_cast<const EuropeanOption&>(instrument);
+
+    // same idea: cast Payoff& to PlainVanillaPayoff to use strike() and type()
+    const PlainVanillaPayoff& payoff =
+        dynamic_cast<const PlainVanillaPayoff&>(option.payoff());
+
+    // bs_price wants 1 for a call and 0 for a put
+    int call = (payoff.type() == OptionType::Call) ? 1 : 0;
+
+    double T = option.expiry();
+    // Black-Scholes needs single numbers, so I take the average rate and the rms vol
+    // over [0,T] from the curves (for constant parameters these are just r, d and vol)
+    double r   = process_.r().get_mean(0.0, T);
+    double d   = process_.d().get_mean(0.0, T);
+    double vol = std::sqrt(process_.vol().get_root_mean_square(0.0, T));
+
+    // price it with the Black-Scholes formula
+    return bs_price(process_.spot(), payoff.strike(),
+                    r, d, vol, T, call);
+}
+
+
+==================================================
+FILE: SRC/Engines/Analytic/AnalyticEuropeanEngine.h
+==================================================
+#pragma once
+#include "pricing_engine.h"          // the base class (we inherit → full include)
+#include "black_scholes_process.h"   // we hold a process by value → full include
+
+
+class AnalyticEuropeanEngine: public PricingEngine
+// Analytic Euriopean inherits Priicng Enigne methods
+{
+    private:
+        BlackScholesProcess process_;
+    public:
+        AnalyticEuropeanEngine(BlackScholesProcess process); // give the engine its market
+        double calculate(const Instrument& instrument) const override;
+};
+
+==================================================
+FILE: SRC/Engines/Analytic/BlackScholes.cpp
+==================================================
+#include <cmath>
+#include "normals.h"
+#include "BlackScholes.h"
+
+// Here is european call option function with analytic BS
+// I created it as European calls/puts  should be the base cases anyway
+// and to check MC engine
+double bs_price(double S, double K, double r, double d, double vol, double T, int call)
+{
+    // Enter 1 for a call and 0 for a put
+    double d1 = (std::log(S/K) + (r - d + 0.5*vol*vol)*T) / (vol*std::sqrt(T));
+    double d2 = d1 - vol*std::sqrt(T);
+
+    double price;
+    if (call == 1)
+    {
+        price = CumulativeNormal(d1)*S*std::exp(-d*T) - CumulativeNormal(d2)*K*std::exp(-r*T);
+    }
+    else
+    {
+        price = CumulativeNormal(-d2)*K*std::exp(-r*T) - CumulativeNormal(-d1)*S*std::exp(-d*T);
+    }
+    return price;
+}
+
+==================================================
+FILE: SRC/Engines/Analytic/BlackScholes.h
+==================================================
+#include <cmath>
+#include "normals.h"
+
+double bs_price(double S, double K, double r, double d, double vol, double T, int call);
+
+==================================================
+FILE: SRC/Engines/MC/BarrierMonitoring/BarrierMonitor.h
+==================================================
+#pragma once
+
+// Base class for barrier monitoring. step_survival returns the probability that the
+// option survives one step. Discrete monitor returns 0 or 1, Brownian bridge returns
+// a probability in between (it accounts for a possible breach inside the step).
+
+class BarrierMonitor
+{
+    public:
+        virtual double step_survival(
+            double S_prev, double S_curr, double lower,
+            double upper, double variance     // step variance (integral of vol^2)
+        ) const = 0;
+        // destructor
+        virtual ~BarrierMonitor() {}
+};
+
+==================================================
+FILE: SRC/Engines/MC/BarrierMonitoring/BrownianBridge.cpp
+==================================================
+#include "BrownianBridge.h"
+#include <cmath>
+
+double BrownianBridge::step_survival(
+    double S_prev, double S_curr, double lower,
+    double upper, double variance
+) const
+{
+    // if S is already past the barrier at this grid point, it is knocked out
+    if (S_curr <= lower || S_curr >= upper)
+        return 0.0;
+
+    // probability the path crossed the barrier between S_prev and S_curr (brownian bridge).
+    // variance is the step variance (integral of vol^2).
+    // if a barrier is inf (upper) or non-positive (lower) that side does not exist, so p = 0
+    double p_up  = std::isfinite(upper)
+                 ? std::exp(-2 * std::log(upper / S_prev) * std::log(upper / S_curr) / variance)
+                 : 0.0;
+    double p_low = (lower > 0.0)
+                 ? std::exp(-2 * std::log(S_prev / lower) * std::log(S_curr / lower) / variance)
+                 : 0.0;
+
+    // clamp to [0,1]. The formula can go outside this range when the path starts on the
+    // dead side; a value outside [0,1] just means it surely crossed, so treat as knocked out
+    double s = (1.0 - p_up) * (1.0 - p_low);
+    if (s < 0.0) s = 0.0;
+    if (s > 1.0) s = 1.0;
+    return s;
+}
+
+
+==================================================
+FILE: SRC/Engines/MC/BarrierMonitoring/BrownianBridge.h
+==================================================
+#pragma once
+#include "BarrierMonitor.h"
+
+class BrownianBridge : public BarrierMonitor
+{
+    private:
+    public:
+        double step_survival(double S_prev, double S_curr, double lower,
+            double upper, double variance) const override;
+};
+
+==================================================
+FILE: SRC/Engines/MC/BarrierMonitoring/DiscreteMonitor.cpp
+==================================================
+#include "DiscreteMonitor.h"
+
+double DiscreteMonitor::step_survival(
+    double S_prev, double S_curr, double lower,
+    double upper, double variance
+) const
+{
+    // 0 if knocked out and 1 if not
+    double breached = 1.0; 
+
+    if (S_curr <= lower || S_curr >= upper)
+    {
+        breached = 0.0;
+    }
+    return breached;
+}
+
+==================================================
+FILE: SRC/Engines/MC/BarrierMonitoring/DiscreteMonitor.h
+==================================================
+#pragma once
+#include "BarrierMonitor.h"
+
+class DiscreteMonitor : public BarrierMonitor
+{
+    private:
+    public:
+        double step_survival(double S_prev, double S_curr, double lower,
+            double upper, double variance) const override;
+};
+
+==================================================
+FILE: SRC/Engines/MC/MonteCarloBarrierEngine.cpp
+==================================================
+#include "MonteCarloBarrierEngine.h"
+#include "BarrierOption.h"
+#include "payoff.h"
+#include <cmath>
+#include <vector>
+#include "BarrierMonitor.h"
+#include "DiscreteMonitor.h"
+
+// Extending the code with gatherer for MC
+#include "conf_limits.h"
+
+MonteCarloBarrierEngine::MonteCarloBarrierEngine(BlackScholesProcess process, unsigned long number_of_steps,
+                                                 unsigned long number_of_simulations,
+                                                 std::shared_ptr<RngBase> rng,
+                                                 std::shared_ptr<BarrierMonitor> monitor)
+    : process_(process), number_of_steps_(number_of_steps), number_of_simulations_(number_of_simulations),
+      rng_(rng), monitor_(monitor)
+{
+    // default to discrete monitoring if the caller didn't supply one
+    if (!monitor_) monitor_ = std::make_shared<DiscreteMonitor>();
+}
+
+double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
+{
+    const BarrierOption& option = dynamic_cast<const BarrierOption&>(instrument);
+
+    const Payoff& payoff = option.payoff();
+
+    double S0 = process_.spot();
+    double T = option.expiry();
+
+    double dt = T / static_cast<double>(number_of_steps_);
+
+    // precompute drift, diffusion and variance for each step from the curves
+    // (for constant parameters every step is the same)
+    std::vector<double> drifts(number_of_steps_);
+    std::vector<double> diffusions(number_of_steps_);
+    std::vector<double> variances(number_of_steps_);
+    for (unsigned long i = 0; i < number_of_steps_; i++)
+    {
+        double t1 = i * dt, t2 = (i + 1) * dt;
+        double var = process_.vol().get_integral_square(t1, t2);
+        drifts[i]     = process_.r().get_integral(t1, t2)
+                      - process_.d().get_integral(t1, t2)
+                      - 0.5 * var;
+        diffusions[i] = std::sqrt(var);
+        variances[i]  = var;
+    }
+    double discount = std::exp(-process_.r().get_integral(0.0, T));
+
+    // Barrier-specific
+    double lower_b = option.lower_barrier();
+    double upper_b = option.upper_barrier();
+    Knock barrier_type = option.barrier_type();
+
+    // Setting confidence limits to 95% (1.96 = normal quantile)
+    ConfidenceLimits gatherer(1.96);
+
+    std::vector<double> variates(number_of_steps_); // one path's worth of N(0,1) draws
+
+    for (unsigned long j = 0; j < number_of_simulations_; j++)
+    {
+        double S = S0;
+        double payoff_value = 0.0;
+
+        rng_->get_gaussians(variates); // get this path's gaussian draws from the RNG
+
+        // in order to calculate the brownian brdige we need to trace the previous S, so 
+        // here is a trailing S_prev
+        double S_prev = S0;
+        double survival = 1.0;
+
+        // if spot is already past the barrier at the start, an Out option is dead
+        // and an In option is alive from the beginning
+        if (S0 <= lower_b || S0 >= upper_b) survival = 0.0;
+
+        for (unsigned long i = 0; i < number_of_steps_; i++)
+        {
+            double Z = variates[i];
+            S *= std::exp(drifts[i] + diffusions[i] * Z);
+            survival *= monitor_->step_survival(S_prev, S, lower_b, upper_b, variances[i]);
+            S_prev = S;
+            // I do not break when survival hits 0, because an In option still needs the
+            // final S. For Out it does not matter, survival 0 gives 0 payoff anyway
+        }
+        // Out option pays survival * payoff, In option pays (1 - survival) * payoff
+        if (barrier_type == Knock::Out) payoff_value = survival * payoff(S);
+        if (barrier_type == Knock::In)  payoff_value = (1.0 - survival) * payoff(S);
+
+        gatherer.dump_one_result(payoff_value * discount);
+    }
+
+    std::vector<MCResult> res = gatherer.get_results_so_far();
+    double price = res.back().mean;
+    std_error_ = res.back().stdError; // save the error so errorEstimate() can return it
+
+    return price;
+}
+
+double MonteCarloBarrierEngine::errorEstimate() const
+{
+    return std_error_;
+}
+
+
+==================================================
+FILE: SRC/Engines/MC/MonteCarloBarrierEngine.h
+==================================================
+#pragma once
+#include "pricing_engine.h"
+#include "black_scholes_process.h"
+#include "RngBase.h"
+#include "BarrierMonitor.h"
+#include <memory>
+
+// Separate MonteCarlo ENgine for path-dependant payoffs.
+// Barrier, touch options etc. need to keep tract of the path during whole payoff.
+
+class MonteCarloBarrierEngine: public PricingEngine
+{
+    private:
+        BlackScholesProcess process_;
+        mutable double std_error_; // mutable because calculate() is const but I still want to save the error here
+        unsigned long number_of_steps_;
+        unsigned long number_of_simulations_;
+        std::shared_ptr<RngBase> rng_;   // the RNG used for the simulation, passed in by the caller
+        std::shared_ptr<BarrierMonitor> monitor_; // barrier monitor, passed in (defaults to Discrete if none given)
+    public:
+        MonteCarloBarrierEngine(BlackScholesProcess process, unsigned long number_of_steps,
+                                unsigned long number_of_simulations,
+                                std::shared_ptr<RngBase> rng,
+                                std::shared_ptr<BarrierMonitor> monitor = nullptr
+                            );
+        double calculate(const Instrument& instrument) const override;
+        double errorEstimate() const;
+};
+
+
+==================================================
+FILE: SRC/Engines/MC/MonteCarloEngine.cpp
+==================================================
+#include "MonteCarloEngine.h"
+#include "EuropeanOption.h"
+#include "payoff.h"
+#include <cmath>
+#include <random>
+
+// Extending the code with gatherer for MC
+#include "conf_limits.h"
+
+MonteCarloEngine::MonteCarloEngine(BlackScholesProcess process, unsigned long number_of_paths)
+    : process_(process), number_of_paths_(number_of_paths)
+{
+}
+
+double MonteCarloEngine::calculate(const Instrument& instrument) const
+{
+    // cast the generic Instrument& to EuropeanOption so we can read payoff() and expiry()
+    const EuropeanOption& option = dynamic_cast<const EuropeanOption&>(instrument);
+    const Payoff& payoff = option.payoff();
+
+    std::mt19937_64 rng(12345);
+    std::normal_distribution<double> norm(0.0, 1.0);
+
+    double S0 = process_.spot();
+    double T = option.expiry();
+
+    // integrate the curves over the whole life [0,T] (for constant parameters this is r*T and vol^2*T)
+    double drift     = process_.r().get_integral(0.0, T)
+                     - process_.d().get_integral(0.0, T)
+                     - 0.5 * process_.vol().get_integral_square(0.0, T);
+    double diffusion = std::sqrt(process_.vol().get_integral_square(0.0, T));
+    double discount  = std::exp(-process_.r().get_integral(0.0, T));
+
+    ConfidenceLimits gatherer(1.96); // Setting confidence limits to 95% (1.96 = normal quantile)
+
+    for (unsigned long i = 0; i < number_of_paths_; i++)
+    {
+        double Z = norm(rng);
+        double ST = S0 * std::exp(drift + diffusion * Z);
+        gatherer.dump_one_result(payoff(ST) * discount); // add the discounted payoff to the gatherer
+    }
+
+    std::vector<MCResult> res = gatherer.get_results_so_far();
+    double price = res.back().mean;
+    std_error_ = res.back().stdError; // save the error for errorEstimate()
+
+    return price;
+}
+
+double MonteCarloEngine::errorEstimate() const
+{
+    return std_error_;
+}
+
+
+==================================================
+FILE: SRC/Engines/MC/MonteCarloEngine.h
+==================================================
+#pragma once
+#include "pricing_engine.h"
+#include "black_scholes_process.h"
+
+class MonteCarloEngine: public PricingEngine
+// Analytic Euriopean inherits Priicng Enigne methods
+{
+    private:
+        BlackScholesProcess process_;
+        mutable double std_error_; // calculate() is const (promises not to change the engine), but we do want to cache the error in it
+        unsigned long number_of_paths_;
+    public:
+        MonteCarloEngine(BlackScholesProcess process, unsigned long number_of_paths); // same process as in ANalytic
+        double calculate(const Instrument& instrument) const override;
+        double errorEstimate() const;
+};
+
+
+==================================================
+FILE: SRC/Engines/MC/RNG/AntiThetic.cpp
+==================================================
+#pragma once
+#include "AntiThetic.h"
+
+AntiThetic::AntiThetic(std::shared_ptr<RngBase> inner)
+    : inner_(inner), fresh_(true)
+{
+}
+
+void AntiThetic::get_gaussians(std::vector<double>& z)
+{
+    if (fresh_)
+    {
+        inner_->get_gaussians(z); // calling the wrapper for new variable
+        cached_ = z;// saving it
+    }
+    else
+    {
+        for (unsigned long i = 0; i < z.size(); i++)
+            z[i] = -cached_[i]; // returning negative number
+    }
+    fresh_ = !fresh_; // next call
+}
+
+==================================================
+FILE: SRC/Engines/MC/RNG/AntiThetic.h
+==================================================
+#pragma once
+#include "RngBase.h"
+#include <memory>
+#include <vector>
+// Decorator, which can wrap ParkMiller or Mt19937
+
+// The biggest caveat here is that using anthitetiec variates trick, the confidence interval
+// is no longer completly valid. The confidence limit is somehow the lower limit, but addding
+// 2x times variables does not decrease the standard error as it would have done in independant 
+// case, i.e. without anthitetic
+
+class AntiThetic : public RngBase
+{
+    private:
+        std::shared_ptr<RngBase> inner_; // has-a RngBase (ParkMiller or Mt19937)
+        std::vector<double> cached_;
+        bool fresh_;
+    public:
+        AntiThetic(std::shared_ptr<RngBase> inner);
+        void get_gaussians(std::vector<double>& z) override;
+};
+
+==================================================
+FILE: SRC/Engines/MC/RNG/Mt19937.cpp
+==================================================
+#include "Mt19937.h"
+#include <random>
+
+Mt19937Rng::Mt19937Rng(unsigned long seed)
+    : rng_(seed)        // seed the generator (norm_ defaults to N(0,1))
+{
+}
+
+void Mt19937Rng::get_gaussians(std::vector<double>& z)
+{
+    // fill the vector with N(0,1) draws
+    for (double&  zi:z)
+    {
+        zi = norm_(rng_); // draw one N(0,1) intoeach element
+    }
+}
+
+==================================================
+FILE: SRC/Engines/MC/RNG/Mt19937.h
+==================================================
+#pragma once
+#include "RngBase.h"
+#include <random>
+
+class Mt19937Rng : public RngBase
+{
+    private:
+        std::mt19937_64 rng_;
+        std::normal_distribution<double> norm_;
+
+    public:
+        Mt19937Rng(unsigned long seed);
+        // oveeriding the implementation of base
+        void get_gaussians(std::vector<double>& z) override;
+};
+
+==================================================
+FILE: SRC/Engines/MC/RNG/ParkMiller.cpp
+==================================================
+// I cliped the ParkMIller so it is adpatable to my interface with Mt19937
+// without the extesnive stuff peviously implemented.
+
+#include "ParkMiller.h"
+#include "normals.h"
+
+const long a = 16807;
+const long m = 2147483647;
+const long q = 127773;
+const long r = 2836;
+
+ParkMiller::ParkMiller(long seed_) : seed(seed_)
+{
+    if (seed == 0)
+        seed = 1;
+}
+
+ParkMillerRng::ParkMillerRng(long seed) : core_(seed) {}
+
+void ParkMiller::set_seed(long seed_)
+{
+    seed = seed_;
+    if (seed == 0)
+        seed = 1;
+}
+
+unsigned long ParkMiller::max()
+{
+    return m - 1;
+}
+
+unsigned long ParkMiller::min()
+{
+    return 1;
+}
+
+long ParkMiller::get_one_random_integer()
+{
+    long k;
+    k = seed / q;
+    seed = a * (seed - k * q) - r * k;
+    if (seed < 0)
+        seed += m;
+    return seed;
+}
+
+
+void ParkMillerRng::get_gaussians(std::vector<double>& z)
+{
+    for (double& zi : z)
+    {
+        long n = core_.get_one_random_integer();      // random integer in [1, m-1]
+        double u = n / (1.0 + ParkMiller::max());      // scale to a uniform in (0,1)
+        zi = InverseCumulativeNormal(u);               // turn the uniform into a N(0,1)
+    }
+}
+
+==================================================
+FILE: SRC/Engines/MC/RNG/ParkMiller.h
+==================================================
+// ParkMiller is the raw integer generator (linear congruential).
+// ParkMillerRng wraps it and turns the integers into gaussians, so it fits the RngBase
+// interface and can be used by the engine the same way as Mt19937Rng.
+
+#pragma once
+#include "RngBase.h"
+
+class ParkMiller
+{
+    private:
+        long seed;
+
+    public:
+        ParkMiller(long Seed = 1);
+
+        long get_one_random_integer();
+        void set_seed(long Seed);
+
+        static unsigned long max();
+        static unsigned long min();
+};
+
+// ParkMillerRng uses the interface of RngBase, but the user does not need to know
+// the impleemntation of ParkMiller, so it is initilised with 
+class ParkMillerRng : public RngBase
+{
+    private:
+        ParkMiller core_;
+    
+    public:
+        // Changed 
+        ParkMillerRng(long seed);
+        void get_gaussians(std::vector<double>& z) override;
+};
+
+==================================================
+FILE: SRC/Engines/MC/RNG/RngBase.h
+==================================================
+// RngBase is a base clase (abstract) which gives interface for the actual
+// impleementation of random generators. this encompasses the in house implementation
+// of Park MIller as well as mt19937.
+// Mt19937Rng and ParkMillerRng inherit this and implement get_gaussians().
+// AntiThetic also inherits it and wraps another RngBase (decorator pattern).
+
+#pragma once
+#include <vector>
+
+class RngBase 
+{
+    public:
+        virtual void get_gaussians(std::vector<double>& z) = 0;
+        virtual ~RngBase() {}
+};
+
+==================================================
+FILE: SRC/Engines/pricing_engine.h
+==================================================
+#pragma once
+#include "instrument.h"
+
+// forward declaration <= go back here
+class PricingEngine
+
+{
+public:
+    virtual double calculate(const Instrument& option) const = 0;
+    virtual ~PricingEngine() {}
+};
+
+==================================================
+FILE: SRC/Instruments/Options/BarrierOption.cpp
+==================================================
+#include "BarrierOption.h"
+#include <memory>
+#include <limits> // std::numeric_limits<double>::infinity()
+
+// Implementation of Barrier Option
+// I decided to make eventually double barrier option a default case as it is neater and double barrier
+// decay to single barrier with correct parmeters
+
+BarrierOption::BarrierOption(std::shared_ptr<Payoff> payoff, double expiry, 
+                             double lower_barrier, double upper_barrier, Knock barrier_type)
+    : expiry_(expiry), payoff_(payoff), lower_barrier_(lower_barrier), upper_barrier_(upper_barrier),
+    barrier_type_(barrier_type)
+{
+}
+
+double BarrierOption::expiry() const { return expiry_; }
+double BarrierOption::lower_barrier() const { return lower_barrier_; }
+double BarrierOption::upper_barrier() const { return upper_barrier_; }
+Knock BarrierOption::barrier_type() const { return barrier_type_; }
+const Payoff& BarrierOption::payoff() const { return *payoff_; }
+
+// As in BarrierOption.h:
+// here are named makers to make pricing single barrier more convinient and have one class for single and
+// double barriers. If it was not implemented one would need to rember to pass inf or -inf for upper or lower barrier
+// to make pricing correct, which was not elegant
+namespace { const double INF = std::numeric_limits<double>::infinity(); }
+
+BarrierOption BarrierOption::downOut(std::shared_ptr<Payoff> payoff, double expiry, double barrier)
+{   // dies if S falls through lower barrier; inf for upper one and analogically all the types
+    return BarrierOption(payoff, expiry, barrier, INF, Knock::Out);
+}
+BarrierOption BarrierOption::upOut(std::shared_ptr<Payoff> payoff, double expiry, double barrier)
+{
+    return BarrierOption(payoff, expiry, -INF, barrier, Knock::Out);
+}
+BarrierOption BarrierOption::doubleOut(std::shared_ptr<Payoff> payoff, double expiry, double lower, double upper)
+{
+    return BarrierOption(payoff, expiry, lower, upper, Knock::Out);
+}
+BarrierOption BarrierOption::downIn(std::shared_ptr<Payoff> payoff, double expiry, double barrier)
+{
+    return BarrierOption(payoff, expiry, barrier, INF, Knock::In);
+}
+BarrierOption BarrierOption::upIn(std::shared_ptr<Payoff> payoff, double expiry, double barrier)
+{
+    return BarrierOption(payoff, expiry, -INF, barrier, Knock::In);
+}
+BarrierOption BarrierOption::doubleIn(std::shared_ptr<Payoff> payoff, double expiry, double lower, double upper)
+{
+    return BarrierOption(payoff, expiry, lower, upper, Knock::In);
+}
+
+==================================================
+FILE: SRC/Instruments/Options/BarrierOption.h
+==================================================
+#pragma once
+#include "payoff.h"
+#include <memory>
+#include "instrument.h"
+
+// THe class already genralizes to double barriers. If user want single barrier then just enters one barrier
+// and the other is inf. If user want e.g. up-and-in call then chooses "In" Barrier and out is inf.
+
+enum class Knock {In, Out};
+
+
+class BarrierOption: public Instrument
+{
+    private:
+        double expiry_;
+        std::shared_ptr<Payoff> payoff_;
+        double lower_barrier_;
+        double upper_barrier_;
+        Knock barrier_type_;
+    public:
+        BarrierOption(std::shared_ptr<Payoff> payoff, double expiry,
+                      double lower_barrier_, double upper_barrier_,
+                      Knock barrier_type_);
+
+        
+        // here are named makers to make pricing single barrier more convinient and have one class for single and
+        // double barriers. If it was not implemented one would need to rember to pass inf or -inf for upper or lower barrier
+        // to make pricing correct, which was not elegant
+        static BarrierOption downOut (std::shared_ptr<Payoff> payoff, double expiry, double barrier);
+        static BarrierOption upOut (std::shared_ptr<Payoff> payoff, double expiry, double barrier);
+        static BarrierOption doubleOut (std::shared_ptr<Payoff> payoff, double expiry, double lower, double upper);
+        static BarrierOption downIn (std::shared_ptr<Payoff> payoff, double expiry, double barrier);
+        static BarrierOption upIn (std::shared_ptr<Payoff> payoff, double expiry, double barrier);
+        static BarrierOption doubleIn (std::shared_ptr<Payoff> payoff, double expiry, double lower, double upper);
+
+        double expiry() const;
+        double lower_barrier() const;
+        double upper_barrier() const;
+        Knock barrier_type() const; // return Knocj type (In/Out)
+        const Payoff& payoff() const;
+};
+
+==================================================
+FILE: SRC/Instruments/Options/EuropeanOption.cpp
+==================================================
+#include "EuropeanOption.h"
+#include <memory>
+
+// Constructor
+EuropeanOption::EuropeanOption(std::shared_ptr<Payoff> payoff, double expiry)
+    : payoff_(payoff), expiry_(expiry)
+{
+}
+
+double EuropeanOption::expiry() const { return expiry_; }
+// returning the payoff type
+const Payoff& EuropeanOption::payoff() const { return *payoff_; } // *becuase this is a pointer
+
+==================================================
+FILE: SRC/Instruments/Options/EuropeanOption.h
+==================================================
+#pragma once
+#include "payoff.h"
+#include <memory>
+#include "instrument.h"
+
+// This implementation splits an option into two independent ideas, exactly like QuantLib:
+// option = exercise style + payoff
+// "European" describes the exercise style and the payoff describes the shape: call, put, digital, etc.
+// Because EuropeanOption holds a Payoff it can price an European call/put/digital
+
+// std::shared_ptr is used as it already has a correct destructor,
+// copy constructor and assignment. I wanted to omit "Wrapper" to form a habit of using standard solutions,
+// even though Wrapper was certainly more convenient, but I had problem remebering what I need to put in the classes
+// when I did not have ready "Wrapper", so I just acted as if I did not have it.
+
+// NPV and setPricingEngine() are inherted for free
+class EuropeanOption: public Instrument
+{
+    private:
+        double expiry_;
+        std::shared_ptr<Payoff> payoff_;
+
+    public:
+        EuropeanOption(std::shared_ptr<Payoff> payoff, double expiry);
+        double expiry() const;
+        const Payoff& payoff() const;
+};
+
+==================================================
+FILE: SRC/Instruments/Options/option_type.h
+==================================================
+#pragma once
+// Shared Call/Put type, used by VanillaOption and bs_price
+
+enum class OptionType { Call, Put };
+
+==================================================
+FILE: SRC/Instruments/Options/payoff.cpp
+==================================================
+#include "option_type.h"
+#include <cmath>
+#include <algorithm> // for std::max
+#include "payoff.h"
+
+// COnstructor
+PlainVanillaPayoff::PlainVanillaPayoff(OptionType type, double strike)
+    : type_(type), strike_(strike) 
+{
+}
+
+// Implementation of Put and Call Option payoffs
+double PlainVanillaPayoff:: operator() (double spot_) const
+{
+    // Call
+    if (type_ == OptionType::Call)
+    {
+        return std::max(spot_ - strike_, 0.0);
+    }
+    // Put
+    else if (type_ == OptionType::Put)
+    {
+        return std::max(strike_ - spot_, 0.0);
+    }
+}
+
+OptionType PlainVanillaPayoff::type() const {return type_; } // return option type Call or Put
+double PlainVanillaPayoff::strike() const {return strike_; }
+
+// Destructor
+Payoff* PlainVanillaPayoff::clone() const
+{
+    return new PlainVanillaPayoff(*this);
+}
+
+==================================================
+FILE: SRC/Instruments/Options/payoff.h
+==================================================
+#pragma once
+#include "option_type.h"
+
+
+// abstract base interface every payoff uses
+// For the time being just Put and Call
+class Payoff
+{
+    public:
+        virtual double operator()(double spot) const = 0;
+        virtual Payoff* clone() const = 0; // polymorphic copy
+        virtual ~Payoff() {}
+};
+
+class PlainVanillaPayoff : public Payoff
+{
+    private:
+        OptionType type_; // type from option_type i.e. OptionType::Call or OptionType::Put
+        double strike_;
+    public:
+        // Initilization
+        PlainVanillaPayoff(OptionType type, double strike);
+
+        // Functor for spot
+        double operator()(double spot) const override;
+        OptionType type() const;
+        double strike() const;
+        Payoff* clone() const override;
+};
+
+==================================================
+FILE: SRC/Instruments/Portfolio.cpp
+==================================================
+#include "Portfolio.h"
+#include <vector>
+#include <memory>
+#include <utility>
+
+// Enables adding as .add(-2, secondLeg)
+void Portfolio::add(double weight, std::shared_ptr<Instrument> leg)
+{
+    legs_.push_back({weight, leg});
+}
+
+double Portfolio::NPV() const
+{
+    double sum = 0.0;
+    // Lopping through portfolio and summing the weight * portfolio value
+    for (const auto& leg : legs_)
+    {
+        double NPV_single = leg.second -> NPV();
+        double weight = leg.first;
+        sum += weight*NPV_single;
+
+    };
+    return sum;
+}
+
+
+==================================================
+FILE: SRC/Instruments/Portfolio.h
+==================================================
+#pragma once
+#include "instrument.h"
+#include <vector>
+#include <memory>
+#include <utility>
+
+// Implementation of Portfolio, which is alternative to COnstrcuting fly payoff.
+// I prefer to have it as such, becuase if one decided to have e.g. all different structures
+// then the whole repo would get messy and not readble. NMomrevoer I want to keep options\
+// coming into portfolio "independant". Technically with fly payoff I could run one MC,
+// but I think that neater is without it.
+
+class Portfolio : public Instrument
+{
+    private:
+        // now one needs to add as e.g.: XYZ.add(-2, SomeLeg)
+        std::vector<std::pair<double, std::shared_ptr<Instrument>>> legs_;
+    public:
+        // Adding the leg to the whatever position
+        void add(double weight, std::shared_ptr<Instrument> leg);
+        // Return the NPV of whole position
+        virtual double NPV() const override;
+};
+
+==================================================
+FILE: SRC/Instruments/instrument.cpp
+==================================================
+#include "instrument.h"
+#include "pricing_engine.h"
+
+
+
+void Instrument::setPricingEngine(std::shared_ptr<PricingEngine> engine)
+{
+    engine_ = engine;
+}
+
+double Instrument::NPV() const 
+{
+    return engine_ -> calculate(*this); // this Instrument
+}
+
+==================================================
+FILE: SRC/Instruments/instrument.h
+==================================================
+#pragma once
+#include <memory>
+
+// Abstract class for instruments. With such design I can put any instrument into into pricing engine. 
+// Without it, the engone would be too narrow. The engine with e.g.
+// GBM process could not be attached too multiple instruments or at least it would not be elegant
+
+//  EuropeanOption gets Instrument's methods because of inheritance
+
+class PricingEngine; // forward declaration, because PRicing Engine was not yet finished at that time
+
+class Instrument
+{
+    public:
+        void setPricingEngine(std::shared_ptr<PricingEngine> engine);
+        virtual double NPV() const; // virtual so that when something holds this
+        // as a shared_ptr<Instrument> and calls NPV(), the Portfolio's summing 
+        // version runs — not the base engine version
+        virtual ~Instrument() {}
+
+    // protcted so child class can reach it
+    protected:
+        std::shared_ptr<PricingEngine> engine_;
+};
+
+==================================================
+FILE: SRC/Processes/GBM/black_scholes_process.cpp
+==================================================
+#include "black_scholes_process.h"
+
+// constant params - wraps each scalar in a ParametersConstant
+BlackScholesProcess::BlackScholesProcess(double spot, double vol, double r, double d)
+    : spot_(spot), vol_(ParametersConstant(vol)), r_(ParametersConstant(r)), d_(ParametersConstant(d))
+{
+}
+
+// term-structure market - caller supplies the curves directly
+BlackScholesProcess::BlackScholesProcess(double spot, Parameters vol, Parameters r, Parameters d)
+    : spot_(spot), vol_(vol), r_(r), d_(d)
+{
+}
+
+// Accessors:
+double BlackScholesProcess::spot() const { return spot_; }
+const Parameters& BlackScholesProcess::vol() const { return vol_; }
+const Parameters& BlackScholesProcess::r() const { return r_; }
+const Parameters& BlackScholesProcess::d() const { return d_; }
+
+==================================================
+FILE: SRC/Processes/GBM/black_scholes_process.h
+==================================================
+#pragma once
+#include "parameters.h"
+
+// Data Collector for BS Process.
+// vol / r / d are Parameters (curves): a flat ParametersConstant for the
+// constant case, any term-structure subclass later. spot stays a scalar.
+class BlackScholesProcess
+{
+    private:
+        double spot_;
+        Parameters vol_;
+        Parameters r_;
+        Parameters d_;
+    public:
+        BlackScholesProcess(double spot, double vol, double r, double d);
+        // passes curves directly (term structure)
+        BlackScholesProcess(double spot, Parameters vol, Parameters r, Parameters d);
+
+        double spot() const;
+        const Parameters& vol() const;
+        const Parameters& r() const;
+        const Parameters& d() const;
+};
+
+
+==================================================
+FILE: SRC/Statistics/conf_limits.cpp
+==================================================
+#include "statistics_mc.h"
+#include "conf_limits.h"
+#include "helpers.h"
+#include <cmath>
+
+ConfidenceLimits::ConfidenceLimits(double z_value_)
+    : payoffs(0), z_value(z_value_)
+{
+}
+
+void ConfidenceLimits::dump_one_result(double result)
+{
+    payoffs.push_back(result);
+}
+
+std::vector<MCResult> ConfidenceLimits::get_results_so_far() const
+{
+    MCResult ResultsStruct;
+    ResultsStruct.mean = get_vec_mean(payoffs);
+    ResultsStruct.stdError = get_vec_stddev(payoffs) / pow(payoffs.size(), 0.5);
+    ResultsStruct.ciLow = ResultsStruct.mean - z_value * ResultsStruct.stdError;
+    ResultsStruct.ciHigh = ResultsStruct.mean + z_value * ResultsStruct.stdError;
+    ResultsStruct.paths = payoffs.size();
+
+    // return ResultsStruct;   // <- a single struct: won't match the vector return type
+    return { ResultsStruct };
+}
+
+StatisticsMC *ConfidenceLimits::clone() const
+{
+    return new ConfidenceLimits(*this);
+}
+
+void ConfidenceLimits::reset()
+{
+    payoffs.clear();
+}
+
+
+==================================================
+FILE: SRC/Statistics/conf_limits.h
+==================================================
+#ifndef CONF_LIMITS_H
+#define CONF_LIMITS_H
+
+#include "statistics_mc.h"
+#include <vector>
+
+
+class ConfidenceLimits : public StatisticsMC
+{
+
+public:
+    // z_value is the normal quantile. 1.645 -> 90%, 1.96 -> 95%
+    ConfidenceLimits(double z_value_ = 1.645);
+    virtual void dump_one_result(double result);
+    // virtual std::vector<std::vector<double>> get_results_so_far() const;
+    virtual std::vector<MCResult> get_results_so_far() const; // 1-row table (mean/se/CI for all paths)
+    virtual StatisticsMC *clone() const;
+    virtual void reset();
+
+private:
+    std::vector<double> payoffs;
+    double z_value;
+};
+
+#endif
+
+
+==================================================
+FILE: SRC/Statistics/statistics_mc.cpp
+==================================================
+#include "statistics_mc.h"
+using namespace std;
+
+StatisticsMean::StatisticsMean() : running_sum(0.0), paths_done(0UL)
+{
+}
+
+void StatisticsMean::dump_one_result(double result)
+{
+    paths_done++;
+    running_sum += result;
+}
+
+std::vector<MCResult> StatisticsMean::get_results_so_far() const
+{
+    MCResult r;
+    r.mean = running_sum / paths_done;
+    r.paths = paths_done;
+    r.stdError = 0;
+    r.ciLow = 0;
+    r.ciHigh = 0;
+    return {r};
+}
+
+StatisticsMC *StatisticsMean::clone() const
+{
+    return new StatisticsMean(*this);
+}
+
+void StatisticsMean::reset()
+{
+    paths_done = 0UL;
+    running_sum = 0.0;
+}
+
+
+==================================================
+FILE: SRC/Statistics/statistics_mc.h
+==================================================
+#pragma once
+#include <vector>
+
+// ---------------------------------------------------------------------------
+// MCResult is now the "universal currency" every gatherer returns.
+// It used to be an anonymous std::vector<double> row (hence the ugly res[0][0]).
+// We give the columns names + a path count, and we put it HERE because the
+// base-class contract below returns it, so every gatherer must see one and the
+// same definition (defining it twice = "redefinition" error).
+// ---------------------------------------------------------------------------
+struct MCResult
+{
+    double mean;
+    double stdError;
+    double ciLow;
+    double ciHigh;
+    unsigned long paths; // used by the convergence table
+};
+
+class StatisticsMC
+{
+    private:
+
+    public:
+        StatisticsMC() {};
+        virtual void dump_one_result(double result) = 0;
+        // OLD universal interface: an unnamed table of doubles -> forced ugly res[0][0]
+        // virtual std::vector<std::vector<double>> get_results_so_far() const = 0;
+        // NEW: same SHAPE (outer vector = rows/snapshots) but each row is a named
+        // MCResult. A plain gatherer returns 1 row; the convergence table returns N.
+        virtual std::vector<MCResult> get_results_so_far() const = 0;
+        virtual StatisticsMC *clone() const = 0;
+        virtual ~StatisticsMC() {};
+        virtual void reset() = 0;
+};
+
+class StatisticsMean : public StatisticsMC
+{
+    private:
+        double running_sum;
+        unsigned long paths_done;
+        
+    public:
+        StatisticsMean();
+        virtual void dump_one_result(double result);
+        // virtual std::vector<std::vector<double>> get_results_so_far() const;
+        virtual std::vector<MCResult> get_results_so_far() const; // must match the base signature
+        virtual StatisticsMC *clone() const;
+        virtual void reset();
+};
+
+==================================================
+FILE: SRC/TermStructures/parameters.cpp
+==================================================
+// This file is fully taken from the Project11/12, so I will not comment here
+#include "parameters.h"
+
+Parameters::Parameters(const ParametersInner &innerObject)
+{
+    InnerObjectPtr = innerObject.clone();
+}
+
+Parameters::Parameters(const Parameters &original)
+{
+    InnerObjectPtr = original.InnerObjectPtr->clone();
+}
+
+Parameters &Parameters::operator=(const Parameters &original)
+{
+    if (this != &original)
+    {
+        delete InnerObjectPtr;
+        InnerObjectPtr = original.InnerObjectPtr->clone();
+    }
+    return *this;
+}
+
+Parameters::~Parameters()
+{
+    delete InnerObjectPtr;
+}
+
+double Parameters::get_mean(double time1, double time2) const
+{
+    double total = get_integral(time1, time2);
+    return total / (time2 - time1);
+}
+
+double Parameters::get_root_mean_square(double time1, double time2) const
+{
+    double total = get_integral_square(time1, time2);
+    return total / (time2 - time1);
+}
+
+ParametersConstant::ParametersConstant(double constant_)
+{
+    constant = constant_;
+    constant_square = constant_ * constant_;
+}
+
+ParametersInner *ParametersConstant::clone() const
+{
+    return new ParametersConstant(*this);
+}
+
+double ParametersConstant::get_integral(double time1, double time2) const
+{
+    return (time2 - time1) * constant;
+}
+
+double ParametersConstant::get_integral_square(double time1, double time2) const
+{
+    return (time2 - time1) * constant_square;
+}
+
+
+==================================================
+FILE: SRC/TermStructures/parameters.h
+==================================================
+// This file is fully taken from the Project11/12, so I will not comment here
+
+#ifndef PARAMETERS_H
+#define PARAMETERS_H
+
+// This is a base class.
+// All its methods are abstract, so this is why we refer to it
+// as an abstract class.
+class ParametersInner
+{
+public:
+    ParametersInner() {};
+    virtual ParametersInner *clone() const = 0;
+    virtual double get_integral(double time1, double time2) const = 0;
+    virtual double get_integral_square(double time1, double time2) const = 0;
+    virtual ~ParametersInner() {};
+
+private:
+};
+
+// This is a BRIDGING CLASS!
+// This class handles the interaction without the outside world
+// and the memory handling.
+// Its only data member is a pointer to an abstract class (ParametersInner).
+class Parameters
+{
+
+public:
+    Parameters(const ParametersInner &innerObject);
+    Parameters(const Parameters &original);
+    Parameters &operator=(const Parameters &original);
+    ~Parameters();
+
+    inline double get_integral(double time1, double time2) const;
+    inline double get_integral_square(double time1, double time2) const;
+
+    double get_mean(double time1, double time2) const;
+    double get_root_mean_square(double time1, double time2) const;
+
+private:
+    ParametersInner *InnerObjectPtr;
+};
+
+inline double Parameters::get_integral(double time1, double time2) const
+{
+    return InnerObjectPtr->get_integral(time1, time2);
+}
+
+inline double Parameters::get_integral_square(double time1, double time2) const
+{
+    return InnerObjectPtr->get_integral_square(time1, time2);
+}
+
+// This is a subclass of the ParametersInner base class.
+// It is designed for handling option parameters, that are constant in time.
+class ParametersConstant : public ParametersInner
+{
+
+public:
+    ParametersConstant(double constant);
+
+    virtual ParametersInner *clone() const;
+    virtual double get_integral(double time1, double time2) const;
+    virtual double get_integral_square(double time1, double time2) const;
+
+private:
+    double constant;
+    double constant_square;
+};
+
+#endif
+
+
+==================================================
+FILE: Makefile
+==================================================
+# ==================================================================
+#  HOW TO RUN  (open MSYS2 / MinGW terminal in this folder, then):
+#
+#     mingw32-make run-fly     -> price the butterfly once
+#     mingw32-make run-sens    -> price vs spot / vol / barrier  (writes the .csv files)
+#     mingw32-make run-conv    -> convergence study (price + error vs number of paths)
+#     mingw32-make run-bb      -> discrete vs Brownian-bridge monitoring
+#     mingw32-make run-anti    -> antithetic variates comparison
+#     mingw32-make clean       -> delete the built .exe files
+#
+#  (the Excel function is in the separate xlw / Visual Studio project)
+# ==================================================================
+
+CXX      = g++
+CXXFLAGS = -std=c++17 -O2 -Wall
+
+# every folder that has a header in it
+INCLUDES = -ISRC/Core -ISRC/Processes/GBM \
+           -ISRC/Instruments -ISRC/Instruments/Options \
+           -ISRC/Engines -ISRC/Engines/Analytic \
+           -ISRC/Engines/MC -ISRC/Engines/MC/RNG -ISRC/Engines/MC/BarrierMonitoring \
+           -ISRC/TermStructures -ISRC/Statistics
+
+# all the library source files (everything except the App/ programs that have main())
+SRC = SRC/Core/normals.cpp \
+      SRC/Core/helpers.cpp \
+      SRC/Processes/GBM/black_scholes_process.cpp \
+      SRC/TermStructures/parameters.cpp \
+      SRC/Instruments/instrument.cpp \
+      SRC/Instruments/Options/payoff.cpp \
+      SRC/Instruments/Options/EuropeanOption.cpp \
+      SRC/Instruments/Options/BarrierOption.cpp \
+      SRC/Instruments/Portfolio.cpp \
+      SRC/Engines/Analytic/BlackScholes.cpp \
+      SRC/Engines/Analytic/AnalyticEuropeanEngine.cpp \
+      SRC/Engines/MC/MonteCarloBarrierEngine.cpp \
+      SRC/Engines/MC/RNG/Mt19937.cpp \
+      SRC/Engines/MC/RNG/AntiThetic.cpp \
+      SRC/Engines/MC/RNG/ParkMiller.cpp \
+      SRC/Engines/MC/BarrierMonitoring/DiscreteMonitor.cpp \
+      SRC/Engines/MC/BarrierMonitoring/BrownianBridge.cpp \
+      SRC/Statistics/conf_limits.cpp
+
+# build a program = its App/ file (with main) + all the library sources above
+butterfly.exe: App/test_butterfly.cpp $(SRC)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+
+sensitivity.exe: App/butterfly_sensitivity.cpp $(SRC)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+
+convergence.exe: App/convergence.cpp $(SRC)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+
+bb.exe: App/test_brownian_bridge.cpp $(SRC)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+
+anti.exe: App/test_anthitetic.cpp $(SRC)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+
+barrier.exe: App/test_barrier.cpp $(SRC)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+
+# build, then run
+run-fly: butterfly.exe
+	./butterfly.exe
+
+run-sens: sensitivity.exe
+	./sensitivity.exe
+
+run-conv: convergence.exe
+	./convergence.exe
+
+run-bb: bb.exe
+	./bb.exe
+
+run-anti: anti.exe
+	./anti.exe
+
+run: barrier.exe
+	./barrier.exe
+
+clean:
+	rm -f *.exe
+
+.PHONY: run run-fly run-sens run-conv run-bb run-anti clean
+
+

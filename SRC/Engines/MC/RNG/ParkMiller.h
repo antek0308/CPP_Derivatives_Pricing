@@ -1,9 +1,6 @@
-//What does my engine want? → get_gaussians(vector&) (the RngBase contract).
-// What raw source do I have? → a thing that emits raw numbers (ParkMiller integers; 
-// or std::mt19937 bits).
-// They don't match → write a wrapper: class XxxRng : public RngBase that holds the 
-// raw source and, in get_gaussians, asks it for numbers and converts them to gaussians.
-// Construct it from a seed (hide the raw source inside).
+// ParkMiller is the raw integer generator (linear congruential).
+// ParkMillerRng wraps it and turns the integers into gaussians, so it fits the RngBase
+// interface and can be used by the engine the same way as Mt19937Rng.
 
 #pragma once
 #include "RngBase.h"

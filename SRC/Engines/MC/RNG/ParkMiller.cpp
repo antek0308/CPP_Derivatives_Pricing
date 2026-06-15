@@ -49,8 +49,8 @@ void ParkMillerRng::get_gaussians(std::vector<double>& z)
 {
     for (double& zi : z)
     {
-        long n = core_.get_one_random_integer();      // int in [1, m-1]
-        double u = n / (1.0 + ParkMiller::max());      // uniform in (0,1)
-        zi = InverseCumulativeNormal(u);               // → N(0,1)
+        long n = core_.get_one_random_integer();      // random integer in [1, m-1]
+        double u = n / (1.0 + ParkMiller::max());      // scale to a uniform in (0,1)
+        zi = InverseCumulativeNormal(u);               // turn the uniform into a N(0,1)
     }
 }

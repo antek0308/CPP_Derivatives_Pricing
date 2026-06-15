@@ -31,8 +31,8 @@ double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
 
     double dt = T / static_cast<double>(number_of_steps_);
 
-    // precompute per-step drift / diffusion / variance from the (possibly
-    // time-varying) curves. For constant params every step is identical.
+    // precompute drift, diffusion and variance for each step from the curves
+    // (for constant parameters every step is the same)
     std::vector<double> drifts(number_of_steps_);
     std::vector<double> diffusions(number_of_steps_);
     std::vector<double> variances(number_of_steps_);
@@ -63,15 +63,15 @@ double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
         double S = S0;
         double payoff_value = 0.0;
 
-        rng_->get_gaussians(variates); // fill this path's draws from the injected RNG
+        rng_->get_gaussians(variates); // get this path's gaussian draws from the RNG
 
         // in order to calculate the brownian brdige we need to trace the previous S, so 
         // here is a trailing S_prev
         double S_prev = S0;
         double survival = 1.0;
 
-        // born-dead / born-activated: if the spot already sits past the barrier at t=0,
-        // an OUT option is knocked out (and an IN option activated) immediately.
+        // if spot is already past the barrier at the start, an Out option is dead
+        // and an In option is alive from the beginning
         if (S0 <= lower_b || S0 >= upper_b) survival = 0.0;
 
         for (unsigned long i = 0; i < number_of_steps_; i++)
@@ -80,10 +80,10 @@ double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
             S *= std::exp(drifts[i] + diffusions[i] * Z);
             survival *= monitor_->step_survival(S_prev, S, lower_b, upper_b, variances[i]);
             S_prev = S;
-            // NOTE: do NOT break when survival hits 0 — a knock-IN still needs S_T at
-            // expiry. (For knock-OUT, survival=0 zeroes the payoff anyway, so nothing lost.)
+            // I do not break when survival hits 0, because an In option still needs the
+            // final S. For Out it does not matter, survival 0 gives 0 payoff anyway
         }
-        // Alive by default. If breached and out barruer then it is not alive
+        // Out option pays survival * payoff, In option pays (1 - survival) * payoff
         if (barrier_type == Knock::Out) payoff_value = survival * payoff(S);
         if (barrier_type == Knock::In)  payoff_value = (1.0 - survival) * payoff(S);
 
@@ -92,7 +92,7 @@ double MonteCarloBarrierEngine::calculate(const Instrument& instrument) const
 
     std::vector<MCResult> res = gatherer.get_results_so_far();
     double price = res.back().mean;
-    std_error_ = res.back().stdError; // cache into the mutable member for errorEstimate()
+    std_error_ = res.back().stdError; // save the error so errorEstimate() can return it
 
     return price;
 }

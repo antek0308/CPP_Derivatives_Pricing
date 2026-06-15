@@ -12,11 +12,11 @@ class MonteCarloBarrierEngine: public PricingEngine
 {
     private:
         BlackScholesProcess process_;
-        mutable double std_error_; // calculate() is const (promises not to change the engine), but we do want to cache the error in it
+        mutable double std_error_; // mutable because calculate() is const but I still want to save the error here
         unsigned long number_of_steps_;
         unsigned long number_of_simulations_;
-        std::shared_ptr<RngBase> rng_;   // the engine HOLDS its RNG (injected by the caller)
-        std::shared_ptr<BarrierMonitor> monitor_; // Barrier Monitoring (injected; defaults to Discrete)
+        std::shared_ptr<RngBase> rng_;   // the RNG used for the simulation, passed in by the caller
+        std::shared_ptr<BarrierMonitor> monitor_; // barrier monitor, passed in (defaults to Discrete if none given)
     public:
         MonteCarloBarrierEngine(BlackScholesProcess process, unsigned long number_of_steps,
                                 unsigned long number_of_simulations,

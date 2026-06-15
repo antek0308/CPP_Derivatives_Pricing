@@ -22,9 +22,10 @@ class BarrierOption: public Instrument
                       double lower_barrier_, double upper_barrier_,
                       Knock barrier_type_);
 
-        // --- named makers: direction is in the NAME, and the number of levels
-        //     picks single vs double. Single-sided ones set the absent side to
-        //     +/- infinity so that side can never knock. ---
+        
+        // here are named makers to make pricing single barrier more convinient and have one class for single and
+        // double barriers. If it was not implemented one would need to rember to pass inf or -inf for upper or lower barrier
+        // to make pricing correct, which was not elegant
         static BarrierOption downOut (std::shared_ptr<Payoff> payoff, double expiry, double barrier);
         static BarrierOption upOut (std::shared_ptr<Payoff> payoff, double expiry, double barrier);
         static BarrierOption doubleOut (std::shared_ptr<Payoff> payoff, double expiry, double lower, double upper);
@@ -35,6 +36,6 @@ class BarrierOption: public Instrument
         double expiry() const;
         double lower_barrier() const;
         double upper_barrier() const;
-        Knock barrier_type() const;
+        Knock barrier_type() const; // return Knocj type (In/Out)
         const Payoff& payoff() const;
 };

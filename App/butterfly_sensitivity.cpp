@@ -1,3 +1,5 @@
+// Butterfly sensitivity in c++, whcih could be comapred with Excel
+
 #include <iostream>
 #include <iomanip>
 #include <memory>
@@ -14,7 +16,6 @@
 // Helper for pricing butterfly only
 double priceButterfly(double spot, double vol, double barrier, double expiry, unsigned long num_paths)
 {
-
     const double strike1 = 100.0; // lower strike
     const double strike2 = 110.0; // middle strike
     const double strike3 = 120.0; // upper strike
@@ -37,7 +38,7 @@ double priceButterfly(double spot, double vol, double barrier, double expiry, un
     auto thirdLeg = std::make_shared<BarrierOption>(BarrierOption::upOut(payoff3, expiry, barrier));
 
 
-    // Mt19937 engine without antithetic varites trick
+    // Mt19937 engine with antithetic varites trick
     auto plain_eng = std::make_shared<MonteCarloBarrierEngine>(
         process, num_steps, num_paths, 
         std::make_shared<AntiThetic>(std::make_shared<Mt19937Rng>(12345)));
@@ -58,10 +59,10 @@ double priceButterfly(double spot, double vol, double barrier, double expiry, un
 
 int main()
 {
-    // Fixed parameters; each study below varies ONE of them
+    // fixed parameters
     const double S0 = 110.0, vol = 0.23, T0 = 0.5;
-    const double barrier = 130.0;          // upper barrier, above the structure
-    const unsigned long num_paths = 50000; // bump to 1e6 for the final, smooth report runs
+    const double barrier = 130.0; // barrier above the structure
+    const unsigned long num_paths = 50000;
 
     // price vs spot
     std::ofstream f_spot("study_spot.csv");
@@ -81,7 +82,7 @@ int main()
     for (double b = 90.0; b <= 150.0; b += 1.0)
         f_barrier << b << "," << priceButterfly(S0, vol, b, T0, num_paths) << "\n";
 
-    // price vs maturity (time to expiry) -- explicitly asked for in the assignment
+    // price vs maturity
     std::ofstream f_mat("study_maturity.csv");
     f_mat << "maturity,price\n";
     for (double T = 0.05; T <= 2.0; T += 0.05)

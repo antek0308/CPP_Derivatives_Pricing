@@ -3,7 +3,7 @@
 #include <memory>
 #include <utility>
 
-
+// Enables adding as .add(-2, secondLeg)
 void Portfolio::add(double weight, std::shared_ptr<Instrument> leg)
 {
     legs_.push_back({weight, leg});

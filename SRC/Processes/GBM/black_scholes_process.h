@@ -2,7 +2,7 @@
 #include "parameters.h"
 
 // Data Collector for BS Process.
-// vol / r / d are now Parameters (curves): a flat ParametersConstant for the
+// vol / r / d are Parameters (curves): a flat ParametersConstant for the
 // constant case, any term-structure subclass later. spot stays a scalar.
 class BlackScholesProcess
 {
@@ -12,10 +12,8 @@ class BlackScholesProcess
         Parameters r_;
         Parameters d_;
     public:
-        // convenience: constant (flat) market -- wraps each scalar in ParametersConstant.
-        // keeps every existing BlackScholesProcess(110, 0.23, 0.05, 0.0) call working.
         BlackScholesProcess(double spot, double vol, double r, double d);
-        // general: pass curves directly (term structure)
+        // passes curves directly (term structure)
         BlackScholesProcess(double spot, Parameters vol, Parameters r, Parameters d);
 
         double spot() const;

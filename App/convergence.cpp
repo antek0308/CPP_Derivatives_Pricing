@@ -1,3 +1,5 @@
+// Testing the convergence
+
 #include <iostream>
 #include <iomanip>
 #include <memory>
@@ -9,10 +11,9 @@
 #include "MonteCarloBarrierEngine.h"
 #include "Mt19937.h"
 
-// Price ONE barrier option (the butterfly's middle leg: an up-and-out put,
-// K = 110, barrier = 130) with `num_paths` Monte Carlo paths.
-// Returns {price, std_error}.  A single option (not the Portfolio) so we have
-// access to engine->errorEstimate().
+// prices one barrier option (an up-and-out put, K=110, barrier=130) with num_paths paths.
+// I use a single option instead of the portfolio so I can also read the std error from the engine.
+// returns the price and the error as a pair.
 std::pair<double, double> priceOneOption(unsigned long num_paths)
 {
     const double S0 = 110.0, vol = 0.23, r = 0.05, d = 0.0, expiry = 0.5;
@@ -24,7 +25,7 @@ std::pair<double, double> priceOneOption(unsigned long num_paths)
     auto payoff = std::make_shared<PlainVanillaPayoff>(OptionType::Put, strike);
     auto option = std::make_shared<BarrierOption>(BarrierOption::upOut(payoff, expiry, barrier));
 
-    // fresh engine with THIS path count + fresh RNG seed -> each row reproducible
+    // new engine each call with the same seed, so every row is reproducible
     auto engine = std::make_shared<MonteCarloBarrierEngine>(
         process, num_steps, num_paths, std::make_shared<Mt19937Rng>(12345));
     option->setPricingEngine(engine);
@@ -40,9 +41,9 @@ int main()
     f << "num_paths,price,std_error\n";
 
     std::cout << std::fixed << std::setprecision(6);
-    for (unsigned long n = 1024; n <= (1u << 20); n *= 2)   // 2^10 ... 2^20
+    for (unsigned long n = 1024; n <= (1u << 20); n *= 2) // 2^10 ... 2^20
     {
-        auto [price, error] = priceOneOption(n);            // structured binding unpacks the pair
+        auto [price, error] = priceOneOption(n); // unpack the pair into price and error
         f << n << "," << price << "," << error << "\n";
         std::cout << "n = " << n << "   price = " << price << "   std_err = " << error << "\n";
     }

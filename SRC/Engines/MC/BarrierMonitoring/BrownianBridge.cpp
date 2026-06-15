@@ -6,13 +6,13 @@ double BrownianBridge::step_survival(
     double upper, double variance
 ) const
 {
-    // hard hit at the grid point -> definitely knocked out
+    // if S is already past the barrier at this grid point, it is knocked out
     if (S_curr <= lower || S_curr >= upper)
         return 0.0;
 
-    // probability the bridge crossed each barrier between S_prev and S_curr.
-    // `variance` is the increment variance for this step (= integral of vol^2).
-    // guards: +inf upper / non-positive lower => that side is absent (p = 0).
+    // probability the path crossed the barrier between S_prev and S_curr (brownian bridge).
+    // variance is the step variance (integral of vol^2).
+    // if a barrier is inf (upper) or non-positive (lower) that side does not exist, so p = 0
     double p_up  = std::isfinite(upper)
                  ? std::exp(-2 * std::log(upper / S_prev) * std::log(upper / S_curr) / variance)
                  : 0.0;
@@ -20,9 +20,8 @@ double BrownianBridge::step_survival(
                  ? std::exp(-2 * std::log(S_prev / lower) * std::log(S_curr / lower) / variance)
                  : 0.0;
 
-    // clamp to a valid probability: the formula can over/undershoot when a path
-    // straddles the barrier (e.g. it started on the dead side). A survival outside
-    // [0,1] means the path definitely crossed -> treat as a certain knock-out.
+    // clamp to [0,1]. The formula can go outside this range when the path starts on the
+    // dead side; a value outside [0,1] just means it surely crossed, so treat as knocked out
     double s = (1.0 - p_up) * (1.0 - p_low);
     if (s < 0.0) s = 0.0;
     if (s > 1.0) s = 1.0;

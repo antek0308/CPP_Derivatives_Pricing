@@ -1,3 +1,5 @@
+// File for testing the Portfolio class
+
 #include <iostream>
 #include <iomanip>
 #include <memory>
@@ -56,7 +58,7 @@ int main()
     const double price = LongPutButterfly.NPV();
 
     std::cout << std::fixed << std::setprecision(5);
-    std::cout << "Long put butterfly (up-and-out, barrier=140) = " << price << "\n";
+    std::cout << "Price = " << price << "\n";
     
     return 0;
 }

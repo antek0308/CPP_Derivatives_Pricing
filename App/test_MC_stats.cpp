@@ -1,3 +1,5 @@
+// File for testing the stastics features
+
 #include <iostream>
 #include <memory>
 #include "payoff.h"
@@ -18,8 +20,8 @@ int main()
     unsigned long num_paths = 1000000;
     auto mc = std::make_shared<MonteCarloEngine>(process, num_paths);
     option.setPricingEngine(mc);
-    std::cout << "MC call NPV  = " << option.NPV() << "\n";          // expect ~8.4819
-    std::cout << "MC std error = " << mc->errorEstimate() << "\n";   // 95% CI half-width = 1.96*this
+    std::cout << "MC call NPV  = " << option.NPV() << "\n";
+    std::cout << "MC std error = " << mc->errorEstimate() << "\n";
 
     return 0;
 }

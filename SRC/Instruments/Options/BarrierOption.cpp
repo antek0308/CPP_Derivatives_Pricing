@@ -1,6 +1,10 @@
 #include "BarrierOption.h"
 #include <memory>
-#include <limits>   // std::numeric_limits<double>::infinity()
+#include <limits> // std::numeric_limits<double>::infinity()
+
+// Implementation of Barrier Option
+// I decided to make eventually double barrier option a default case as it is neater and double barrier
+// decay to single barrier with correct parmeters
 
 BarrierOption::BarrierOption(std::shared_ptr<Payoff> payoff, double expiry, 
                              double lower_barrier, double upper_barrier, Knock barrier_type)
@@ -15,19 +19,18 @@ double BarrierOption::upper_barrier() const { return upper_barrier_; }
 Knock BarrierOption::barrier_type() const { return barrier_type_; }
 const Payoff& BarrierOption::payoff() const { return *payoff_; }
 
-// ---------------------------------------------------------------------------
-// Named makers. Each just fills the 5-arg constructor; single-sided variants
-// push the unused side to +/- infinity so its breach test (S >= +inf or
-// S <= -inf) can never fire.
-// ---------------------------------------------------------------------------
+// As in BarrierOption.h:
+// here are named makers to make pricing single barrier more convinient and have one class for single and
+// double barriers. If it was not implemented one would need to rember to pass inf or -inf for upper or lower barrier
+// to make pricing correct, which was not elegant
 namespace { const double INF = std::numeric_limits<double>::infinity(); }
 
 BarrierOption BarrierOption::downOut(std::shared_ptr<Payoff> payoff, double expiry, double barrier)
-{   // dies if S falls to/through the (lower) barrier; no upper side
+{   // dies if S falls through lower barrier; inf for upper one and analogically all the types
     return BarrierOption(payoff, expiry, barrier, INF, Knock::Out);
 }
 BarrierOption BarrierOption::upOut(std::shared_ptr<Payoff> payoff, double expiry, double barrier)
-{   // dies if S rises to/through the (upper) barrier; no lower side
+{
     return BarrierOption(payoff, expiry, -INF, barrier, Knock::Out);
 }
 BarrierOption BarrierOption::doubleOut(std::shared_ptr<Payoff> payoff, double expiry, double lower, double upper)

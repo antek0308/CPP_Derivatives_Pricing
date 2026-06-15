@@ -1,3 +1,4 @@
+// This file is fully taken from the Project11/12, so I will not comment here
 #include "parameters.h"
 
 Parameters::Parameters(const ParametersInner &innerObject)

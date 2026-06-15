@@ -1,15 +1,15 @@
 #pragma once
 
-// This class implements brownian bridge, which replaced discrete monitoring with
-// bolean "breached" with survival probability, which answers the question of 
-// "what if the breach would have happened between this short dt?"
+// Base class for barrier monitoring. step_survival returns the probability that the
+// option survives one step. Discrete monitor returns 0 or 1, Brownian bridge returns
+// a probability in between (it accounts for a possible breach inside the step).
 
 class BarrierMonitor
 {
     public:
         virtual double step_survival(
             double S_prev, double S_curr, double lower,
-            double upper, double variance     // increment variance for this step (= integral of vol^2)
+            double upper, double variance     // step variance (integral of vol^2)
         ) const = 0;
         // destructor
         virtual ~BarrierMonitor() {}

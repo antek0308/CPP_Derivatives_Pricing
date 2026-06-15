@@ -3,6 +3,7 @@
 
 
 // abstract base interface every payoff uses
+// For the time being just Put and Call
 class Payoff
 {
     public:
@@ -14,11 +15,13 @@ class Payoff
 class PlainVanillaPayoff : public Payoff
 {
     private:
-        OptionType type_;
+        OptionType type_; // type from option_type i.e. OptionType::Call or OptionType::Put
         double strike_;
     public:
+        // Initilization
         PlainVanillaPayoff(OptionType type, double strike);
 
+        // Functor for spot
         double operator()(double spot) const override;
         OptionType type() const;
         double strike() const;

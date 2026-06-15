@@ -1,3 +1,5 @@
+// File testing the option prices through the parity
+
 #include <iostream>
 #include <iomanip>
 #include <memory>
@@ -28,10 +30,9 @@ int main()
     vanilla.setPricingEngine(std::make_shared<AnalyticEuropeanEngine>(process));
     const double vanilla_price = vanilla.NPV();
 
-    // ---- the two barrier halves ---
-    // Each leg gets its OWN engine with a fresh RNG seeded the same (12345), so
-    // both see identical paths => the parity holds path-by-path and the gap is
-    // pure Monte Carlo noise.
+    // the two halves of the barrier option.
+    // each leg gets its own engine with the same seed, so both use the same paths.
+    // then out + in should equal the vanilla price (parity), up to Monte Carlo noise.
     auto out_engine = std::make_shared<MonteCarloBarrierEngine>
     (
         process, num_steps, num_paths, std::make_shared<Mt19937Rng>(12345)
@@ -50,9 +51,9 @@ int main()
     down_in.setPricingEngine(in_engine);
     const double in_price = down_in.NPV();
 
-    // ---- in/out parity:  downOut + downIn  ==  vanilla ----
-    // On every path the option either touches the barrier (In pays, Out pays 0)
-    // or it doesn't (Out pays, In pays 0); the sum is always the vanilla payoff.
+    // in/out parity: downOut + downIn = vanilla.
+    // on each path the option either touches the barrier (In pays, Out is 0) or it does
+    // not (Out pays, In is 0), so the sum is always the vanilla payoff.
     const double parity_sum = out_price + in_price;
     const double parity_gap = parity_sum - vanilla_price;
 

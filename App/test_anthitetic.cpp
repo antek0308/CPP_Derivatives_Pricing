@@ -1,3 +1,5 @@
+// Testing the results with and without anthitetic trick
+
 #include <iostream>
 #include <iomanip>
 #include <memory>
@@ -54,6 +56,5 @@ int main()
     std::cout << "Down-and-out MT19937 WITH antithetic = " << out_price_anti << " (MC std err " << out_error_anti << ")\n";
     std::cout << "Down-and-out ParkMiller WITH antithetic = " << out_price_anti_PM << " (MC std err " << out_error_anti_PM << ")\n";
 
-    return 0;
     return 0;
 }
