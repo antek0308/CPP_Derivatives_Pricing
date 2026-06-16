@@ -22,7 +22,7 @@ std::vector<MCResult> ConfidenceLimits::get_results_so_far() const
     ResultsStruct.ciHigh = ResultsStruct.mean + z_value * ResultsStruct.stdError;
     ResultsStruct.paths = payoffs.size();
 
-    // return ResultsStruct;   // <- a single struct: won't match the vector return type
+    // ResultsStruct won't match the vector return type, must be in {}
     return { ResultsStruct };
 }
 
